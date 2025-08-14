@@ -1,7 +1,4 @@
-#include "mceliece_types.h"
 #include "mceliece_poly.h"
-#include <stdio.h>
-#include <assert.h>
 
 // 多项式创建
 polynomial_t* polynomial_create(int max_degree) {
@@ -27,7 +24,6 @@ void polynomial_free(polynomial_t *poly) {
     }
 }
 
-
 // Efficient polynomial evaluation using Horner's method
 gf_elem_t polynomial_eval(const polynomial_t *poly, gf_elem_t x) {
     if (poly->degree < 0) {
@@ -45,7 +41,6 @@ gf_elem_t polynomial_eval(const polynomial_t *poly, gf_elem_t x) {
 
     return result;
 }
-
 
 // 设置多项式系数并更新次数
 void polynomial_set_coeff(polynomial_t *poly, int degree, gf_elem_t coeff) {
@@ -205,113 +200,3 @@ void polynomial_div(polynomial_t *q, polynomial_t *r, const polynomial_t *a, con
     r->degree = new_r_degree;
 }
 
-
-
-
-
-
-
-
-
-// Private key creation
-private_key_t* private_key_create(void) {
-    private_key_t *sk = malloc(sizeof(private_key_t));
-    if (!sk) return NULL;
-    
-    memset(sk, 0, sizeof(private_key_t));
-    sk->p = NULL;
-    
-    // 初始化Goppa多项式
-    polynomial_t *g = polynomial_create(MCELIECE_T);
-    if (!g) {
-        free(sk);
-        return NULL;
-    }
-    sk->g = *g;
-    free(g);  // 只释放结构体，不释放coeffs
-    
-    // 分配alpha数组
-    sk->alpha = calloc(MCELIECE_Q, sizeof(gf_elem_t));
-    if (!sk->alpha) {
-        free(sk->g.coeffs);
-        free(sk);
-        return NULL;
-    }
-    
-    // 设置默认c值（对于μ=ν=0）
-    sk->c = (1ULL << 32) - 1;
-    
-    return sk;
-}
-
-// Private key deallocation
-void private_key_free(private_key_t *sk) {
-    if (sk) {
-        if (sk->p) free(sk->p);
-        if (sk->g.coeffs) free(sk->g.coeffs);
-        if (sk->alpha) free(sk->alpha);
-        free(sk);
-    }
-}
-
-// Public key creation
-public_key_t* public_key_create(void) {
-    public_key_t *pk = malloc(sizeof(public_key_t));
-    if (!pk) return NULL;
-    
-    matrix_t *T = matrix_create(MCELIECE_M * MCELIECE_T, MCELIECE_K);
-    if (!T) {
-        free(pk);
-        return NULL;
-    }
-    
-    pk->T = *T;
-    free(T);  // 只释放结构体，不释放data
-    
-    return pk;
-}
-
-// Public key deallocation
-void public_key_free(public_key_t *pk) {
-    if (pk) {
-        if (pk->T.data) free(pk->T.data);
-        free(pk);
-    }
-}
-
-
-
-
-// 矩阵位设置
-void vector_set_bit(uint8_t *vec, int bit_idx, int value) {
-    int byte_idx = bit_idx / 8;
-    int bit_pos = bit_idx % 8;
-    if (value) {
-        vec[byte_idx] |= (1 << bit_pos);
-    } else {
-        vec[byte_idx] &= ~(1 << bit_pos);
-    }
-}
-
-
-// 向量权重计算
-int vector_weight(const uint8_t *vec, int len_bytes) {
-    int weight = 0;
-    for (int i = 0; i < len_bytes; i++) {
-        uint8_t byte = vec[i];
-        // 计算字节中1的个数（Brian Kernighan算法）
-        while (byte) {
-            byte &= byte - 1;
-            weight++;
-        }
-    }
-    return weight;
-}
-
-
-// 向量位获取
-int vector_get_bit(const uint8_t *vec, int bit_idx) {
-    int byte_idx = bit_idx / 8;
-    int bit_pos = bit_idx % 8;
-    return (vec[byte_idx] >> bit_pos) & 1;
-}

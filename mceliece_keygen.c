@@ -1,6 +1,5 @@
-#include "mceliece_keygen.c"
-#include "stdio.h"
-#include <stdint.h> // For uint16_t, uint32_t
+#include "mceliece_keygen.h"
+
 
 
 typedef struct {
@@ -378,3 +377,69 @@ mceliece_error_t mat_gen(const polynomial_t *g, const gf_elem_t *alpha,
 }
 
 
+
+// Private key creation
+private_key_t* private_key_create(void) {
+    private_key_t *sk = malloc(sizeof(private_key_t));
+    if (!sk) return NULL;
+
+    memset(sk, 0, sizeof(private_key_t));
+    sk->p = NULL;
+
+    // 初始化Goppa多项式
+    polynomial_t *g = polynomial_create(MCELIECE_T);
+    if (!g) {
+        free(sk);
+        return NULL;
+    }
+    sk->g = *g;
+    free(g);  // 只释放结构体，不释放coeffs
+
+    // 分配alpha数组
+    sk->alpha = calloc(MCELIECE_Q, sizeof(gf_elem_t));
+    if (!sk->alpha) {
+        free(sk->g.coeffs);
+        free(sk);
+        return NULL;
+    }
+
+    // 设置默认c值（对于μ=ν=0）
+    sk->c = (1ULL << 32) - 1;
+
+    return sk;
+}
+
+// Private key deallocation
+void private_key_free(private_key_t *sk) {
+    if (sk) {
+        if (sk->p) free(sk->p);
+        if (sk->g.coeffs) free(sk->g.coeffs);
+        if (sk->alpha) free(sk->alpha);
+        free(sk);
+    }
+}
+
+// Public key creation
+public_key_t* public_key_create(void) {
+    public_key_t *pk = malloc(sizeof(public_key_t));
+    if (!pk) return NULL;
+
+    matrix_t *T = matrix_create(MCELIECE_M * MCELIECE_T, MCELIECE_K);
+    if (!T) {
+        free(pk);
+        return NULL;
+    }
+
+    pk->T = *T;
+    free(T);  // 只释放结构体，不释放data
+
+    return pk;
+}
+
+// Public key deallocation
+void public_key_free(public_key_t *pk) {
+    if (pk) {
+        if (pk->T.data) free(pk->T.data);
+        free(pk);
+    }
+}

@@ -1,13 +1,4 @@
-#include "mceliece_types.h"
-#include "mceliece_shake.h"
-#include "matrix.h"
-#include "vector.h"
 #include "mceliece_kem.h"
-#include "mceliece_decode.h"
-#include "mceliece_random.h"
-#include <stdio.h>
-
-
 
 // KeyGen算法
 mceliece_error_t mceliece_keygen(public_key_t *pk, private_key_t *sk) {

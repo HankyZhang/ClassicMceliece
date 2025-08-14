@@ -1,10 +1,7 @@
-//
-// Created by 张涵琦 on 2025/8/13.
-//
-
 #ifndef CLASSICMCELIECE_MCELIECE_POLY_H
 #define CLASSICMCELIECE_MCELIECE_POLY_H
-
+#include <stdio.h>
+#include <assert.h>
 #include <stdint.h>
 #include "mceliece_types.h"
 
@@ -32,23 +29,5 @@ void polynomial_mul(polynomial_t *result, const polynomial_t *a, const polynomia
 
 // 多项式除法: q(x) = a(x) / b(x), r(x) = a(x) mod b(x)
 void polynomial_div(polynomial_t *q, polynomial_t *r, const polynomial_t *a, const polynomial_t *b);
-
-
-
-
-
-
-
-
-private_key_t* private_key_create(void);
-void private_key_free(private_key_t *sk);
-
-public_key_t* public_key_create(void);
-void public_key_free(public_key_t *pk);
-
-void print_bytes(const char *label, const uint8_t *data, int len);
-void xor_bytes(uint8_t *dst, const uint8_t *src1, const uint8_t *src2, int len);
-
-
 
 #endif //CLASSICMCELIECE_MCELIECE_POLY_H

@@ -1,7 +1,4 @@
-#include "mceliece_types.h"
-#include "gf.h"
-#include <stdio.h>
-#include <assert.h>
+#include "mceliece_gf.h"
 
 gf_elem_t *gf_log = NULL;
 gf_elem_t *gf_antilog = NULL;

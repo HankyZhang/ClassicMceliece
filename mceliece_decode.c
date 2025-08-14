@@ -1,9 +1,5 @@
-#include "mceliece_types.h"
-#include "mceliece_decode.h"
-#include "matrix.h"
-#include "gf.h"
-#include "vector.h"
 
+#include "mceliece_decode.h"
 
 
 // Calculate syndrome according to Classic McEliece specification

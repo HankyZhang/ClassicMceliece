@@ -1,9 +1,7 @@
-//
-// Created by 张涵琦 on 2025/8/13.
-//
-
 #ifndef CLASSICMCELIECE_MCELIECE_SHAKE_H
 #define CLASSICMCELIECE_MCELIECE_SHAKE_H
+
+#include "mceliece_types.h"
 
     void shake256_init(shake256_ctx *ctx);
     void shake256_absorb(shake256_ctx *ctx, const uint8_t *input, size_t len);

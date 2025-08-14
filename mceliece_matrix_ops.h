@@ -1,15 +1,12 @@
-//
-
-//
-
 #ifndef CLASSICMCELIECE_MCELIECE_MATRIX_OPS_H
 #define CLASSICMCELIECE_MCELIECE_MATRIX_OPS_H
-
-
-
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h> // For malloc and free
+#include <string.h> // For memset
 #include "mceliece_types.h"
-#include "gf.h"
+#include "mceliece_gf.h"
+#include "mceliece_vector.h"
 
 
 // 矩阵创建与释放
@@ -32,14 +29,6 @@ int reduce_to_systematic_form(matrix_t *H);
 // 向量操作
 void matrix_vector_multiply(const matrix_t *mat, const uint8_t *vec, uint8_t *result);
 
-// MatGen 与编码
-mceliece_error_t mat_gen(const polynomial_t *g, const gf_elem_t *alpha,
-                         matrix_t *T_out);
-void encode_vector(const uint8_t *error_vector, const matrix_t *T, uint8_t *ciphertext);
-
-// syndrome 计算
-void compute_syndrome(const uint8_t *received, const polynomial_t *g,
-                      const gf_elem_t *alpha, gf_elem_t *syndrome);
 
 
 #endif //CLASSICMCELIECE_MCELIECE_MATRIX_OPS_H

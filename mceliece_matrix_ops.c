@@ -1,12 +1,6 @@
-#include "mceliece_types.h"
-#include "matrix.h"
-#include "gf.h"
-#include "vector.h"
-#include "matrix.h"
-#include "mceliece.h"
-#include <stdio.h>
-#include <stdlib.h> // For malloc and free
-#include <string.h> // For memset
+
+#include "mceliece_matrix_ops.h"
+
 
 
 // 矩阵创建

@@ -1,8 +1,12 @@
 #ifndef MCELIECE_DECODE_H
 #define MCELIECE_DECODE_H
 
+
 #include <stdint.h>
-#include "mceliece_types.h"  // 你的类型定义文件
+#include "mceliece_types.h"
+#include "mceliece_matrix_ops.h"
+#include "mceliece_gf.h"
+#include "mceliece_vector.h"
 
 #ifdef __cplusplus
 extern "C" {
