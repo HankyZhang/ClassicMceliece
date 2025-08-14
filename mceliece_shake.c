@@ -1,5 +1,5 @@
 #include "mceliece_types.h"
-#inlucde "mceliece_shake.h"
+#include "mceliece_shake.h"
 // Keccak-f[1600] 常量
 #define KECCAK_ROUNDS 24
 #define KECCAK_STATE_SIZE 25  // 25个64位字
@@ -74,13 +74,7 @@ static void keccak_f1600(uint64_t state[25]) {
     }
 }
 
-// SHAKE256 上下文
-typedef struct {
-    uint64_t state[KECCAK_STATE_SIZE];
-    uint8_t buffer[136];  // 1088/8 = 136 bytes for SHAKE256
-    int buffer_pos;
-    int squeezing;
-} shake256_ctx;
+// SHAKE256 context is defined in mceliece_shake.h
 
 // SHAKE256 初始化
 void shake256_init(shake256_ctx *ctx) {

@@ -1,5 +1,8 @@
 #include "mceliece_gf.h"
 
+// Forward declaration for initialization
+static gf_elem_t gf_mul_for_init(gf_elem_t a, gf_elem_t b);
+
 gf_elem_t *gf_log = NULL;
 gf_elem_t *gf_antilog = NULL;
 

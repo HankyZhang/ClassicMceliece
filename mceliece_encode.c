@@ -1,4 +1,7 @@
 #include "mceliece_encode.h"
+#include "mceliece_matrix_ops.h"
+#include <time.h>
+#include <stdio.h>
 
 
 
@@ -12,7 +15,23 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
     uint8_t *random_bytes = malloc(random_bytes_len);
     if (!random_bytes) return MCELIECE_ERROR_MEMORY;
 
-    mceliece_prg((const uint8_t*)"a_seed_for_fixed_weight_vector", random_bytes, random_bytes_len);
+    // Generate a random seed using the system's randomness
+    uint8_t seed[MCELIECE_L_BYTES];
+    
+    // Use system randomness (this is a simple implementation)
+    // In production, you'd want a proper CSPRNG
+    FILE *urandom = fopen("/dev/urandom", "rb");
+    if (urandom) {
+        fread(seed, 1, MCELIECE_L_BYTES, urandom);
+        fclose(urandom);
+    } else {
+        // Fallback to time-based seed (not cryptographically secure)
+        for (int i = 0; i < MCELIECE_L_BYTES; i++) {
+            seed[i] = (uint8_t)(rand() ^ (clock() >> i));
+        }
+    }
+    
+    mceliece_prg(seed, random_bytes, random_bytes_len);
 
     // 2. 为每个 j ∈ {0, 1, ..., τ-1}，定义 d_j
     int *d_values = malloc(tau * sizeof(int));

@@ -25,6 +25,7 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
                     syndrome[j] = gf_add(syndrome[j], term);
                 }
             }
+
         }
     }
 }
@@ -343,3 +344,4 @@ mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_
 
     return ret;
 }
+

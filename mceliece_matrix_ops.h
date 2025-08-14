@@ -1,34 +1,51 @@
 #ifndef CLASSICMCELIECE_MCELIECE_MATRIX_OPS_H
 #define CLASSICMCELIECE_MCELIECE_MATRIX_OPS_H
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h> // For malloc and free
 #include <string.h> // For memset
+#include <stddef.h>
 #include "mceliece_types.h"
 #include "mceliece_gf.h"
 #include "mceliece_vector.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// 矩阵创建与释放
+// Matrix creation and destruction
 matrix_t* matrix_create(int rows, int cols);
 void matrix_free(matrix_t *mat);
 
-// 设置与读取矩阵元素（按bit操作）
+// Matrix element access (bit-level operations)
 void matrix_set_bit(matrix_t *mat, int row, int col, int value);
 int matrix_get_bit(const matrix_t *mat, int row, int col);
 
-// 行列基本操作
+// Basic row and column operations
 void matrix_swap_rows(matrix_t *mat, int row1, int row2);
 void matrix_swap_cols(matrix_t *mat, int col1, int col2);
 void matrix_xor_rows(matrix_t *mat, int row_dst, int row_src);
 
-// 高斯消元与系统形式检查
+// Gaussian elimination and systematic form operations
 int matrix_is_systematic(const matrix_t *mat);
 int reduce_to_systematic_form(matrix_t *H);
+// Variant that records row ops (U) and column permutation (perm)
+int reduce_to_systematic_form_record(matrix_t *H, matrix_t *U_out, int *perm_out);
 
-// 向量操作
+// Matrix-vector operations
 void matrix_vector_multiply(const matrix_t *mat, const uint8_t *vec, uint8_t *result);
+// Invert a square binary matrix (GF(2)); returns 0 on success
+int matrix_invert(const matrix_t *A, matrix_t *A_inv);
 
+// Additional utility functions for matrices over finite fields
+matrix_fq_t* matrix_fq_create(int rows, int cols);
+void matrix_fq_free(matrix_fq_t *mat);
+void matrix_fq_set(matrix_fq_t *mat, int row, int col, gf_elem_t value);
+gf_elem_t matrix_fq_get(const matrix_fq_t *mat, int row, int col);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif //CLASSICMCELIECE_MCELIECE_MATRIX_OPS_H

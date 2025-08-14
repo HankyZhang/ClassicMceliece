@@ -73,7 +73,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
     // 复制初始种子到私钥
     memcpy(sk->delta, delta, delta_prime_len_bytes);
 
-    int max_attempts = 50;
+    int max_attempts = 300;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         // 1. Generate long random string E using current seed delta
         mceliece_prg(sk->delta, E, prg_output_len_bytes);
@@ -89,12 +89,14 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
         // 4. Generate support set alpha
         if (generate_field_ordering(sk->alpha, field_ordering_bits_ptr) != MCELIECE_SUCCESS) {
+            printf("[keygen] attempt %d: generate_field_ordering failed (duplicates)\n", attempt+1);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
 
         // 5. Generate Goppa polynomial g
         if (generate_irreducible_poly_final(&sk->g, irreducible_poly_bits_ptr) != MCELIECE_SUCCESS) {
+            printf("[keygen] attempt %d: generate_irreducible_poly_final failed\n", attempt+1);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
@@ -103,6 +105,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         int is_support_set = 1;
         for (int i = 0; i < n_bits; ++i) {
             if (polynomial_eval(&sk->g, sk->alpha[i]) == 0) {
+                printf("[keygen] attempt %d: support check failed: g(alpha[%d])=0\n", attempt+1, i);
                 is_support_set = 0;
                 break;
             }
@@ -112,11 +115,70 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             continue;
         }
 
-        // 6. Generate public key T
-        if (mat_gen(&sk->g, sk->alpha, &pk->T) != MCELIECE_SUCCESS) {
+        // 6. Generate public key T and record permutation p and row ops U
+        if (sk->p) { free(sk->p); sk->p = NULL; }
+        sk->p = malloc(sizeof(int) * MCELIECE_N);
+        if (!sk->p) { memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        // Build H and reduce with recording to capture U in sk
+        int mt = MCELIECE_M * MCELIECE_T;
+        int n = MCELIECE_N;
+        matrix_t *Htmp = matrix_create(mt, n);
+        if (!Htmp) { printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        for (int i = 0; i < MCELIECE_T; i++) {
+            for (int j = 0; j < MCELIECE_N; j++) {
+                gf_elem_t alpha_power = gf_pow(sk->alpha[j], i);
+                gf_elem_t g_alpha = polynomial_eval(&sk->g, sk->alpha[j]);
+                if (g_alpha == 0) { printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); free(sk->p); sk->p=NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
+                gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
+                for (int bit = 0; bit < MCELIECE_M; bit++) {
+                    int bit_value = (M_ij >> bit) & 1;
+                    matrix_set_bit(Htmp, i * MCELIECE_M + bit, j, bit_value);
+                }
+            }
+        }
+        if (sk->U) { matrix_free((matrix_t*)sk->U); sk->U = NULL; }
+        if (sk->U_inv) { matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL; }
+        sk->U = (void*)matrix_create(mt, mt);
+        if (!sk->U) { printf("[keygen] attempt %d: matrix_create U failed\n", attempt+1); matrix_free(Htmp); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        if (reduce_to_systematic_form_record(Htmp, (matrix_t*)sk->U, sk->p) != 0) {
+            printf("[keygen] attempt %d: reduce_to_systematic_form_record failed (singular)\n", attempt+1);
+            free(sk->p); sk->p = NULL;
+            matrix_free((matrix_t*)sk->U); sk->U = NULL;
+            matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
+        // Extract T from reduced Htmp
+        for (int i = 0; i < mt; i++) {
+            for (int j = 0; j < (MCELIECE_N - mt); j++) {
+                int bit = matrix_get_bit(Htmp, i, mt + j);
+                matrix_set_bit(&pk->T, i, j, bit);
+            }
+        }
+        // Reorder first n support elements to match systematic columns: alpha'[sys] = alpha[orig]
+        {
+            int ncols = MCELIECE_N;
+            gf_elem_t *alpha_prime = malloc(sizeof(gf_elem_t) * ncols);
+            if (!alpha_prime) { matrix_free(Htmp); free(sk->p); sk->p=NULL; matrix_free((matrix_t*)sk->U); sk->U=NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+            for (int j = 0; j < ncols; j++) alpha_prime[j] = 0;
+            for (int orig = 0; orig < ncols; orig++) {
+                int sys = sk->p[orig];
+                alpha_prime[sys] = sk->alpha[orig];
+            }
+            // write back first n reordered
+            for (int j = 0; j < ncols; j++) sk->alpha[j] = alpha_prime[j];
+            free(alpha_prime);
+        }
+        // Precompute U_inv
+        sk->U_inv = (void*)matrix_create(mt, mt);
+        if (!sk->U_inv || matrix_invert((matrix_t*)sk->U, (matrix_t*)sk->U_inv) != 0) {
+            printf("[keygen] attempt %d: matrix_invert(U) failed\n", attempt+1);
+            if (sk->U_inv) { matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL; }
+            free(sk->p); sk->p = NULL; matrix_free((matrix_t*)sk->U); sk->U = NULL; matrix_free(Htmp);
+            memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
+            continue;
+        }
+        matrix_free(Htmp);
 
         // --- All steps successful! ---
 
@@ -125,14 +187,11 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         memcpy(sk->s, s_bits_ptr, (n_bits + 7) / 8);
 
         // Other parts of private key (c, g, alpha) are already in sk structure
-        // p vector is not needed, ensure private_key_free won't try to free uninitialized pointer
-        if(sk->p) {
-            free(sk->p);
-            sk->p = NULL;
-        }
+        // keep sk->p for decapsulation transform
 
         free(E);
         return MCELIECE_SUCCESS;
+retry: ;
     }
 
     // Reached maximum attempts, generation failed
@@ -254,60 +313,257 @@ static int is_irreducible_simple(const polynomial_t *poly) {
 }
 
 // Generate irreducible polynomial - simplified reliable version
-mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
+static void poly_make_monic(polynomial_t *a) {
+    if (a->degree < 0) return;
+    gf_elem_t lc = a->coeffs[a->degree];
+    if (lc == 1) return;
+    gf_elem_t inv = gf_inv(lc);
+    for (int i = 0; i <= a->degree; i++) {
+        a->coeffs[i] = gf_mul(a->coeffs[i], inv);
+    }
+}
+
+static void poly_mod(polynomial_t *r, const polynomial_t *a, const polynomial_t *mod) {
+    polynomial_div(NULL, r, a, mod);
+}
+
+static void poly_square(polynomial_t *out, const polynomial_t *a) {
+    memset(out->coeffs, 0, (out->max_degree + 1) * sizeof(gf_elem_t));
+    out->degree = -1;
+    for (int i = 0; i <= a->degree; i++) {
+        gf_elem_t sq = gf_mul(a->coeffs[i], a->coeffs[i]);
+        int idx = 2 * i;
+        if (idx <= out->max_degree) {
+            out->coeffs[idx] = gf_add(out->coeffs[idx], sq);
+            if (out->coeffs[idx] != 0 && idx > out->degree) out->degree = idx;
+        }
+    }
+}
+
+static void poly_square_mod(polynomial_t *out, const polynomial_t *a, const polynomial_t *mod) {
+    int tmp_deg = 2 * a->degree + 2;
+    if (tmp_deg < 0) tmp_deg = 0;
+    polynomial_t *tmp = polynomial_create(tmp_deg);
+    poly_square(tmp, a);
+    poly_mod(out, tmp, mod);
+    polynomial_free(tmp);
+}
+
+static void poly_add(polynomial_t *out, const polynomial_t *a, const polynomial_t *b) {
+    polynomial_add(out, a, b);
+}
+
+static void poly_set_x(polynomial_t *xpoly) {
+    memset(xpoly->coeffs, 0, (xpoly->max_degree + 1) * sizeof(gf_elem_t));
+    xpoly->degree = 1;
+    xpoly->coeffs[1] = 1;
+}
+
+static void poly_copy(polynomial_t *dst, const polynomial_t *src) { polynomial_copy(dst, src); }
+
+static void poly_gcd(polynomial_t *g, const polynomial_t *a_in, const polynomial_t *b_in) {
+    polynomial_t *a = polynomial_create(a_in->max_degree);
+    polynomial_t *b = polynomial_create(b_in->max_degree);
+    poly_copy(a, a_in);
+    poly_copy(b, b_in);
+    while (!polynomial_is_zero(b)) {
+        polynomial_t *r = polynomial_create(a->max_degree);
+        polynomial_div(NULL, r, a, b);
+        poly_copy(a, b);
+        poly_copy(b, r);
+        polynomial_free(r);
+    }
+    poly_make_monic(a);
+    poly_copy(g, a);
+    polynomial_free(a);
+    polynomial_free(b);
+}
+
+static void poly_x_pow_2e_mod(polynomial_t *out, int e, const polynomial_t *mod) {
+    // Compute X^(2^e) mod mod, via repeated Frobenius squaring on A starting from X
+    polynomial_t *A = polynomial_create(2 * mod->degree + 2);
+    polynomial_t *tmp = polynomial_create(2 * mod->degree + 2);
+    poly_set_x(A);
+    for (int s = 0; s < e; s++) {
+        poly_square_mod(tmp, A, mod);
+        poly_copy(A, tmp);
+    }
+    poly_copy(out, A);
+    polynomial_free(A);
+    polynomial_free(tmp);
+}
+
+static int is_irreducible_over_gfq(const polynomial_t *f) {
+    int n = f->degree;
+    int m = MCELIECE_M;
+    if (n <= 0) return 0;
+    if (f->coeffs[0] == 0) return 0; // divisible by X
+
+    // Distinct prime divisors of n
+    int primes[16];
+    int num_primes = 0;
+    int tleft = n;
+    for (int p = 2; p * p <= tleft; p++) {
+        if (tleft % p == 0) {
+            primes[num_primes++] = p;
+            while (tleft % p == 0) tleft /= p;
+        }
+    }
+    if (tleft > 1) primes[num_primes++] = tleft;
+
+    // Prepare helper polys
+    int work_deg = 2 * n + 2;
+    polynomial_t *B = polynomial_create(work_deg);
+    polynomial_t *H = polynomial_create(work_deg);
+    polynomial_t *G = polynomial_create(work_deg);
+    polynomial_t *f_copy = polynomial_create(f->max_degree);
+    poly_copy(f_copy, f);
+
+    // For each distinct prime p | n, check gcd(X^{q^{n/p}} - X, f) = 1
+    for (int i = 0; i < num_primes; i++) {
+        int p = primes[i];
+        int k = n / p;
+        int e = m * k; // compute X^{2^e} mod f
+        poly_x_pow_2e_mod(B, e, f_copy);
+        // H = B - X = B + X
+        polynomial_t *Xpoly = polynomial_create(work_deg);
+        poly_set_x(Xpoly);
+        poly_add(H, B, Xpoly);
+        polynomial_free(Xpoly);
+        poly_gcd(G, H, f_copy);
+        if (G->degree != 0) { // gcd != 1
+            polynomial_free(B); polynomial_free(H); polynomial_free(G); polynomial_free(f_copy);
+            return 0;
+        }
+    }
+
+    // Final check: f | (X^{q^n} - X)
+    int e_final = m * n;
+    poly_x_pow_2e_mod(B, e_final, f_copy);
+    polynomial_t *Xpoly = polynomial_create(work_deg);
+    poly_set_x(Xpoly);
+    poly_add(H, B, Xpoly);
+    polynomial_free(Xpoly);
+    // If (X^{q^n} - X) mod f == 0, then H mod f == 0
+    polynomial_t *R = polynomial_create(work_deg);
+    poly_mod(R, H, f_copy);
+    int zero = polynomial_is_zero(R);
+    polynomial_free(R);
+
+    polynomial_free(B); polynomial_free(H); polynomial_free(G); polynomial_free(f_copy);
+    return zero;
+}
+
+// Solve square linear system over GF(2^m) with Gauss-Jordan
+static int solve_linear_system_over_gfq(gf_elem_t *M, gf_elem_t *b, gf_elem_t *x, int n) {
+    for (int col = 0, row = 0; col < n && row < n; col++, row++) {
+        int piv = -1;
+        for (int r = row; r < n; r++) {
+            if (M[r * n + col] != 0) { piv = r; break; }
+        }
+        if (piv == -1) return -1;
+        if (piv != row) {
+            for (int c = col; c < n; c++) {
+                gf_elem_t tmp = M[row * n + c];
+                M[row * n + c] = M[piv * n + c];
+                M[piv * n + c] = tmp;
+            }
+            gf_elem_t tb = b[row]; b[row] = b[piv]; b[piv] = tb;
+        }
+        gf_elem_t inv = gf_inv(M[row * n + col]);
+        for (int c = col; c < n; c++) M[row * n + c] = gf_mul(M[row * n + c], inv);
+        b[row] = gf_mul(b[row], inv);
+        for (int r = 0; r < n; r++) {
+            if (r == row) continue;
+            gf_elem_t factor = M[r * n + col];
+            if (factor != 0) {
+                for (int c = col; c < n; c++) M[r * n + c] = gf_add(M[r * n + c], gf_mul(factor, M[row * n + c]));
+                b[r] = gf_add(b[r], gf_mul(factor, b[row]));
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) x[i] = b[i];
+    return 0;
+}
+
+// Build a monic degree-t polynomial via Gaussian elimination on a truncated-power basis.
+// This follows the "Gaussian path" to compute a connection polynomial for f without explicit irreducibility testing.
+static int build_minpoly_gaussian(polynomial_t *g, const uint8_t *random_bits) {
     int t = MCELIECE_T;
     int m = MCELIECE_M;
 
-    // Clear polynomial
     memset(g->coeffs, 0, (g->max_degree + 1) * sizeof(gf_elem_t));
     g->degree = -1;
 
-    // For mceliece6688128, use a known working irreducible polynomial
-    if (t == 128 && m == 13) {
-        // Use polynomial x^128 + x^7 + x^2 + x + 1
-        // This is a well-known irreducible polynomial suitable for this parameter set
-        polynomial_set_coeff(g, 0, 1);    // x^0 term
-        polynomial_set_coeff(g, 1, 1);    // x^1 term
-        polynomial_set_coeff(g, 2, 1);    // x^2 term
-        polynomial_set_coeff(g, 7, 1);    // x^7 term
-        polynomial_set_coeff(g, 128, 1);  // x^128 term (leading coefficient)
+    int coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8;
+    if (coeff_pool_bytes <= 0) coeff_pool_bytes = (t * m + 7) / 8;
 
-        return MCELIECE_SUCCESS;
-    }
-
-    // For other parameter sets, try random generation with simple irreducibility check
-    int max_attempts = 50;
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // Clear polynomial
-        memset(g->coeffs, 0, (g->max_degree + 1) * sizeof(gf_elem_t));
-        g->degree = -1;
-
-        // Set leading coefficient (monic polynomial)
-        polynomial_set_coeff(g, t, 1);
-
-        // Generate random coefficients for lower degree terms
-        for (int i = 0; i < t; i++) {
-            // Use random bits to generate coefficient
-            int byte_idx = (i * 16) / 8;
-            int bit_offset = (i * 16) % 8;
-
-            if (byte_idx < MCELIECE_SIGMA1 * MCELIECE_T / 8) {
-                uint16_t coeff_bits = (uint16_t)random_bits[byte_idx];
-                if (byte_idx + 1 < MCELIECE_SIGMA1 * MCELIECE_T / 8) {
-                    coeff_bits |= ((uint16_t)random_bits[byte_idx + 1] << 8);
-                }
-
-                gf_elem_t coeff = (coeff_bits >> bit_offset) & ((1 << m) - 1);
-                polynomial_set_coeff(g, i, coeff);
-            }
+    // Build f(x) with degree < t from random bits
+    gf_elem_t f_coeffs[MCELIECE_T];
+    int bit_cursor = 0;
+    for (int i = 0; i < t; i++) {
+        int byte_idx = bit_cursor / 8;
+        int bit_off = bit_cursor % 8;
+        uint32_t val = 0;
+        if (byte_idx < coeff_pool_bytes) {
+            val = random_bits[byte_idx];
+            if (byte_idx + 1 < coeff_pool_bytes) val |= ((uint32_t)random_bits[byte_idx + 1] << 8);
+            if (byte_idx + 2 < coeff_pool_bytes) val |= ((uint32_t)random_bits[byte_idx + 2] << 16);
+            val >>= bit_off;
         }
+        f_coeffs[i] = (gf_elem_t)(val & ((1u << m) - 1));
+        bit_cursor += m;
+    }
+    if (f_coeffs[t - 1] == 0) f_coeffs[t - 1] = 1;
 
-        // Simple irreducibility check
-        if (is_irreducible_simple(g)) {
+    // Build powers v_k via truncated convolution
+    gf_elem_t *basis = malloc(sizeof(gf_elem_t) * t * (t + 1));
+    if (!basis) return 0;
+    for (int i = 0; i < t; i++) basis[0 * t + i] = 0;
+    basis[0 * t + 0] = 1;
+    gf_elem_t *tmp = malloc(sizeof(gf_elem_t) * t);
+    if (!tmp) { free(basis); return 0; }
+    for (int k = 1; k <= t; k++) {
+        for (int i = 0; i < t; i++) {
+            gf_elem_t acc = 0;
+            for (int j = 0; j <= i; j++) {
+                acc = gf_add(acc, gf_mul(basis[(k - 1) * t + j], f_coeffs[i - j]));
+            }
+            tmp[i] = acc;
+        }
+        for (int i = 0; i < t; i++) basis[k * t + i] = tmp[i];
+    }
+    free(tmp);
+
+    // Solve M * g_lower = v_t
+    gf_elem_t *Mmat = malloc(sizeof(gf_elem_t) * t * t);
+    gf_elem_t *rhs = malloc(sizeof(gf_elem_t) * t);
+    gf_elem_t *sol = malloc(sizeof(gf_elem_t) * t);
+    if (!Mmat || !rhs || !sol) { if (Mmat) free(Mmat); if (rhs) free(rhs); if (sol) free(sol); free(basis); return 0; }
+    for (int r = 0; r < t; r++) {
+        for (int c = 0; c < t; c++) Mmat[r * t + c] = basis[c * t + r];
+        rhs[r] = basis[t * t + r];
+    }
+    int ok = solve_linear_system_over_gfq(Mmat, rhs, sol, t);
+    free(Mmat); free(rhs); free(basis);
+    if (ok != 0) { free(sol); return 0; }
+
+    // Construct g(x)
+    memset(g->coeffs, 0, (g->max_degree + 1) * sizeof(gf_elem_t));
+    for (int i = 0; i < t; i++) polynomial_set_coeff(g, i, sol[i]);
+    polynomial_set_coeff(g, t, 1);
+    free(sol);
+    return 1;
+}
+
+mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
+    // Keep attempting the Gaussian path until success; deterministically no fallback
+    int max_attempts = 800;
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        if (build_minpoly_gaussian(g, random_bits)) {
             return MCELIECE_SUCCESS;
         }
     }
-
     return MCELIECE_ERROR_KEYGEN_FAIL;
 }
 
@@ -357,7 +613,8 @@ mceliece_error_t mat_gen(const polynomial_t *g, const gf_elem_t *alpha,
         }
     }
 
-    // Convert H to systematic form [I_mt | T]
+    // Convert H to systematic form [I_mt | T] and record transforms (optional)
+    // For now, keep existing behavior; later we can switch to _record and store in sk
     if (reduce_to_systematic_form(H) != 0) {
         matrix_free(H);
         return MCELIECE_ERROR_KEYGEN_FAIL; // Matrix is singular
@@ -376,6 +633,54 @@ mceliece_error_t mat_gen(const polynomial_t *g, const gf_elem_t *alpha,
     return MCELIECE_SUCCESS;
 }
 
+// Variant that also outputs the column permutation used
+mceliece_error_t mat_gen_with_transforms(const polynomial_t *g, const gf_elem_t *alpha,
+                                         matrix_t *T_out, int *perm_out) {
+    if (!g || !alpha || !T_out) {
+        return MCELIECE_ERROR_INVALID_PARAM;
+    }
+
+    int n = MCELIECE_N;
+    int t = MCELIECE_T;
+    int m = MCELIECE_M;
+    int mt = m * t;
+    int k = n - mt;
+
+    matrix_t *H = matrix_create(mt, n);
+    if (!H) return MCELIECE_ERROR_MEMORY;
+
+    for (int i = 0; i < t; i++) {
+        for (int j = 0; j < n; j++) {
+            gf_elem_t alpha_power = gf_pow(alpha[j], i);
+            gf_elem_t g_alpha = polynomial_eval(g, alpha[j]);
+            if (g_alpha == 0) { matrix_free(H); return MCELIECE_ERROR_KEYGEN_FAIL; }
+            gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
+            for (int bit = 0; bit < m; bit++) {
+                int bit_value = (M_ij >> bit) & 1;
+                matrix_set_bit(H, i * m + bit, j, bit_value);
+            }
+        }
+    }
+
+    // Record transforms
+    matrix_t *U = matrix_create(mt, mt);
+    if (!U) { matrix_free(H); return MCELIECE_ERROR_MEMORY; }
+    if (reduce_to_systematic_form_record(H, U, perm_out) != 0) {
+        matrix_free(H); matrix_free(U); return MCELIECE_ERROR_KEYGEN_FAIL;
+    }
+
+    for (int i = 0; i < mt; i++) {
+        for (int j = 0; j < k; j++) {
+            int bit = matrix_get_bit(H, i, mt + j);
+            matrix_set_bit(T_out, i, j, bit);
+        }
+    }
+
+    matrix_free(U);
+    matrix_free(H);
+    return MCELIECE_SUCCESS;
+}
+
 
 
 // Private key creation
@@ -385,6 +690,8 @@ private_key_t* private_key_create(void) {
 
     memset(sk, 0, sizeof(private_key_t));
     sk->p = NULL;
+    sk->U = NULL;
+    sk->U_inv = NULL;
 
     // 初始化Goppa多项式
     polynomial_t *g = polynomial_create(MCELIECE_T);
@@ -413,6 +720,8 @@ private_key_t* private_key_create(void) {
 void private_key_free(private_key_t *sk) {
     if (sk) {
         if (sk->p) free(sk->p);
+        if (sk->U) matrix_free((matrix_t*)sk->U);
+        if (sk->U_inv) matrix_free((matrix_t*)sk->U_inv);
         if (sk->g.coeffs) free(sk->g.coeffs);
         if (sk->alpha) free(sk->alpha);
         free(sk);

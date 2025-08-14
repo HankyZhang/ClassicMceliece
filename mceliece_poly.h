@@ -1,12 +1,18 @@
 #ifndef CLASSICMCELIECE_MCELIECE_POLY_H
 #define CLASSICMCELIECE_MCELIECE_POLY_H
+
 #include <stdio.h>
 #include <assert.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "mceliece_types.h"
+#include "mceliece_gf.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-
+// Polynomial creation and destruction
 polynomial_t* polynomial_create(int max_degree);
 void polynomial_free(polynomial_t *poly);
 
@@ -29,5 +35,9 @@ void polynomial_mul(polynomial_t *result, const polynomial_t *a, const polynomia
 
 // 多项式除法: q(x) = a(x) / b(x), r(x) = a(x) mod b(x)
 void polynomial_div(polynomial_t *q, polynomial_t *r, const polynomial_t *a, const polynomial_t *b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //CLASSICMCELIECE_MCELIECE_POLY_H

@@ -183,6 +183,84 @@ int reduce_to_systematic_form(matrix_t *H) {
     return 0; // Success
 }
 
+// Same as reduce_to_systematic_form but also records the row operations in U_out (mt x mt)
+// and the column permutation in perm_out (length n). U_out will satisfy: U_out * H_original * P = [I | T].
+int reduce_to_systematic_form_record(matrix_t *H, matrix_t *U_out, int *perm_out) {
+    int mt = H->rows;
+    int n = H->cols;
+    int i, j;
+
+    // Initialize U_out as identity if provided
+    if (U_out) {
+        for (int r = 0; r < mt; r++) {
+            for (int c = 0; c < mt; c++) {
+                matrix_set_bit(U_out, r, c, r == c);
+            }
+        }
+    }
+
+    // Initialize column permutation
+    int *col_perm = malloc(n * sizeof(int));
+    if (!col_perm) return -1;
+    for (i = 0; i < n; i++) col_perm[i] = i;
+
+    // Forward elimination
+    for (i = 0; i < mt; i++) {
+        int pivot_row = -1;
+        int pivot_col = -1;
+        for (int col = i; col < n; col++) {
+            for (int row = i; row < mt; row++) {
+                if (matrix_get_bit(H, row, col) == 1) {
+                    pivot_row = row;
+                    pivot_col = col;
+                    break;
+                }
+            }
+            if (pivot_row != -1) break;
+        }
+        if (pivot_row == -1) { free(col_perm); return -1; }
+
+        if (pivot_row != i) {
+            matrix_swap_rows(H, i, pivot_row);
+            if (U_out) matrix_swap_rows(U_out, i, pivot_row);
+        }
+        if (pivot_col != i) {
+            matrix_swap_cols(H, i, pivot_col);
+            int temp = col_perm[i]; col_perm[i] = col_perm[pivot_col]; col_perm[pivot_col] = temp;
+        }
+        for (j = i + 1; j < mt; j++) {
+            if (matrix_get_bit(H, j, i) == 1) {
+                matrix_xor_rows(H, j, i);
+                if (U_out) matrix_xor_rows(U_out, j, i);
+            }
+        }
+    }
+
+    // Back elimination
+    for (i = mt - 1; i >= 0; i--) {
+        for (j = 0; j < i; j++) {
+            if (matrix_get_bit(H, j, i) == 1) {
+                matrix_xor_rows(H, j, i);
+                if (U_out) matrix_xor_rows(U_out, j, i);
+            }
+        }
+    }
+
+    // Export permutation as mapping original_index -> systematic_index
+    // After elimination, col_perm[i] = original_index now at column i
+    // We want perm_out[original] = i
+    if (perm_out) {
+        for (i = 0; i < n; i++) perm_out[i] = 0;
+        for (i = 0; i < n; i++) {
+            int original = col_perm[i];
+            perm_out[original] = i;
+        }
+    }
+
+    free(col_perm);
+    return 0;
+}
+
 
 
 // 矩阵向量乘法：result = mat * vec
@@ -204,6 +282,44 @@ void matrix_vector_multiply(const matrix_t *mat, const uint8_t *vec, uint8_t *re
         // 去掉 if 语句，直接用 sum 作为 value 参数
         vector_set_bit(result, row, sum);
     }
+}
+
+// Invert a square binary matrix A (rows==cols) over GF(2). Returns 0 on success.
+int matrix_invert(const matrix_t *A, matrix_t *A_inv) {
+    if (!A || !A_inv || A->rows != A->cols || A_inv->rows != A->rows || A_inv->cols != A->cols) return -1;
+    int n = A->rows;
+    matrix_t *W = matrix_create(n, 2 * n);
+    if (!W) return -1;
+    // Build [A | I]
+    for (int r = 0; r < n; r++) {
+        for (int c = 0; c < n; c++) {
+            matrix_set_bit(W, r, c, matrix_get_bit(A, r, c));
+            matrix_set_bit(W, r, n + c, (r == c));
+        }
+    }
+    // Gauss-Jordan to [I | A^-1]
+    // Forward
+    for (int i = 0; i < n; i++) {
+        int piv = -1;
+        for (int r = i; r < n; r++) {
+            if (matrix_get_bit(W, r, i)) { piv = r; break; }
+        }
+        if (piv == -1) { matrix_free(W); return -1; }
+        if (piv != i) matrix_swap_rows(W, i, piv);
+        for (int r = 0; r < n; r++) {
+            if (r != i && matrix_get_bit(W, r, i)) {
+                matrix_xor_rows(W, r, i);
+            }
+        }
+    }
+    // Extract right half
+    for (int r = 0; r < n; r++) {
+        for (int c = 0; c < n; c++) {
+            matrix_set_bit(A_inv, r, c, matrix_get_bit(W, r, n + c));
+        }
+    }
+    matrix_free(W);
+    return 0;
 }
 
 

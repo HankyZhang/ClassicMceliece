@@ -1,0 +1,3 @@
+/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles/ClassicMceliece.dir
+/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles/edit_cache.dir
+/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles/rebuild_cache.dir

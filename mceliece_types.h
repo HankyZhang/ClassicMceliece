@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // 参数集定义 - 以mceliece6688128为例
 #define MCELIECE_M 13          // log2(q)
@@ -63,7 +68,9 @@ typedef struct {
     polynomial_t g;
     gf_elem_t *alpha;
     uint8_t s[MCELIECE_N_BYTES];
-    int *p; // <--- 添加这个成员来存储置换向量
+    int *p; // column permutation used in H -> [I|T]
+    void *U;      // row operation matrix (opaque to avoid header cycles)
+    void *U_inv;  // inverse of U (opaque)
 } private_key_t;
 
 typedef struct {
@@ -79,5 +86,8 @@ typedef enum {
     MCELIECE_ERROR_KEYGEN_FAIL = -4
 } mceliece_error_t;
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif // MCELIECE_TYPES_H

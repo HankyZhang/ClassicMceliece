@@ -17,6 +17,15 @@ void print_usage(const char *prog_name) {
     printf("Commands:\n");
     printf("  test      - Run basic functionality tests\n");
     printf("  fulltest  - Run comprehensive test suite\n");
+    printf("  basic     - Test fundamental GF/matrix/vector operations\n");
+    printf("  bmchien   - Run BM+Chien targeted test\n");
+    printf("  decapdbg  - Debug decapsulation pipeline (syndrome vs v)\n");
+    printf("  stress    - Run 50-round stress test\n");
+    printf("  tamper    - Tamper ciphertext test\n");
+    printf("  seeded    - Deterministic seeded keygen test\n");
+    printf("  roundtrip - Encode/Decode roundtrip test\n");
+    printf("  tampswp   - Tamper sweep test\n");
+    printf("  decapfull - Full decapsulation verification\n");
     printf("  keygen    - Generate and display key pair\n");
     printf("  demo      - Run complete encryption/decryption demo\n");
     printf("  bench     - Run performance benchmark\n");
@@ -301,6 +310,9 @@ int main(int argc, char *argv[]) {
     else if (strcmp(command, "fulltest") == 0) {
         run_all_tests();
     }
+    else if (strcmp(command, "basic") == 0) {
+        test_basic_functions();
+    }
     else if (strcmp(command, "keygen") == 0) {
         demo_keygen();
     }
@@ -309,6 +321,30 @@ int main(int argc, char *argv[]) {
     }
     else if (strcmp(command, "bench") == 0) {
         benchmark();
+    }
+    else if (strcmp(command, "bmchien") == 0) {
+        test_bm_chien();
+    }
+    else if (strcmp(command, "decapdbg") == 0) {
+        test_decap_pipeline();
+    }
+    else if (strcmp(command, "stress") == 0) {
+        test_stress();
+    }
+    else if (strcmp(command, "tamper") == 0) {
+        test_tamper();
+    }
+    else if (strcmp(command, "seeded") == 0) {
+        test_seeded();
+    }
+    else if (strcmp(command, "roundtrip") == 0) {
+        test_roundtrip();
+    }
+    else if (strcmp(command, "tampswp") == 0) {
+        test_tamper_sweep();
+    }
+    else if (strcmp(command, "decapfull") == 0) {
+        test_decap_full();
     }
     else {
         printf("Unknown command: %s\n", command);
