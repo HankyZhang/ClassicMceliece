@@ -1,5 +1,6 @@
 #include "mceliece_keygen.h"
 #include "mceliece_genpoly.h"
+#include "mceliece_kem.h"
 
 
 
@@ -74,7 +75,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
     // 复制初始种子到私钥
     memcpy(sk->delta, delta, delta_prime_len_bytes);
 
-    int max_attempts = 300;
+    int max_attempts = 400;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         // 1. Generate long random string E using current seed delta
         mceliece_prg(sk->delta, E, prg_output_len_bytes);
@@ -180,6 +181,31 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             continue;
         }
         matrix_free(Htmp);
+
+        // Self-verify a single KEM round to avoid marginal keys
+        {
+            uint8_t ciphertext[MCELIECE_MT_BYTES];
+            uint8_t session_key1[MCELIECE_L_BYTES];
+            uint8_t session_key2[MCELIECE_L_BYTES];
+            mceliece_error_t vret = mceliece_encap(pk, ciphertext, session_key1);
+            if (vret != MCELIECE_SUCCESS) {
+                printf("[keygen] attempt %d: self-encap failed (%d)\n", attempt+1, vret);
+                matrix_free((matrix_t*)sk->U); sk->U = NULL;
+                matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL;
+                free(sk->p); sk->p = NULL;
+                memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
+                continue;
+            }
+            vret = mceliece_decap(ciphertext, sk, session_key2);
+            if (vret != MCELIECE_SUCCESS || memcmp(session_key1, session_key2, MCELIECE_L_BYTES) != 0) {
+                printf("[keygen] attempt %d: self-verify KEM mismatch\n", attempt+1);
+                matrix_free((matrix_t*)sk->U); sk->U = NULL;
+                matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL;
+                free(sk->p); sk->p = NULL;
+                memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
+                continue;
+            }
+        }
 
         // --- All steps successful! ---
 
