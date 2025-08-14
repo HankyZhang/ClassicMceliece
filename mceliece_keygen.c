@@ -486,9 +486,7 @@ static int solve_linear_system_over_gfq(gf_elem_t *M, gf_elem_t *b, gf_elem_t *x
     return 0;
 }
 
-// Build a monic degree-t polynomial via Gaussian elimination on a truncated-power basis.
-// This follows the "Gaussian path" to compute a connection polynomial for f without explicit irreducibility testing.
-static int build_minpoly_gaussian(polynomial_t *g, const uint8_t *random_bits) {
+mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
     int t = MCELIECE_T;
     int m = MCELIECE_M;
 
@@ -498,8 +496,8 @@ static int build_minpoly_gaussian(polynomial_t *g, const uint8_t *random_bits) {
     int coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8;
     if (coeff_pool_bytes <= 0) coeff_pool_bytes = (t * m + 7) / 8;
 
-    // Build f(x) with degree < t from random bits
-    gf_elem_t f_coeffs[MCELIECE_T];
+    // Build a monic random polynomial of degree t from random_bits
+    polynomial_set_coeff(g, t, 1);
     int bit_cursor = 0;
     for (int i = 0; i < t; i++) {
         int byte_idx = bit_cursor / 8;
@@ -511,58 +509,15 @@ static int build_minpoly_gaussian(polynomial_t *g, const uint8_t *random_bits) {
             if (byte_idx + 2 < coeff_pool_bytes) val |= ((uint32_t)random_bits[byte_idx + 2] << 16);
             val >>= bit_off;
         }
-        f_coeffs[i] = (gf_elem_t)(val & ((1u << m) - 1));
+        gf_elem_t coeff = (gf_elem_t)(val & ((1u << m) - 1));
+        polynomial_set_coeff(g, i, coeff);
         bit_cursor += m;
     }
-    if (f_coeffs[t - 1] == 0) f_coeffs[t - 1] = 1;
+    if (g->coeffs[0] == 0) polynomial_set_coeff(g, 0, 1);
 
-    // Build powers v_k via truncated convolution
-    gf_elem_t *basis = malloc(sizeof(gf_elem_t) * t * (t + 1));
-    if (!basis) return 0;
-    for (int i = 0; i < t; i++) basis[0 * t + i] = 0;
-    basis[0 * t + 0] = 1;
-    gf_elem_t *tmp = malloc(sizeof(gf_elem_t) * t);
-    if (!tmp) { free(basis); return 0; }
-    for (int k = 1; k <= t; k++) {
-        for (int i = 0; i < t; i++) {
-            gf_elem_t acc = 0;
-            for (int j = 0; j <= i; j++) {
-                acc = gf_add(acc, gf_mul(basis[(k - 1) * t + j], f_coeffs[i - j]));
-            }
-            tmp[i] = acc;
-        }
-        for (int i = 0; i < t; i++) basis[k * t + i] = tmp[i];
-    }
-    free(tmp);
-
-    // Solve M * g_lower = v_t
-    gf_elem_t *Mmat = malloc(sizeof(gf_elem_t) * t * t);
-    gf_elem_t *rhs = malloc(sizeof(gf_elem_t) * t);
-    gf_elem_t *sol = malloc(sizeof(gf_elem_t) * t);
-    if (!Mmat || !rhs || !sol) { if (Mmat) free(Mmat); if (rhs) free(rhs); if (sol) free(sol); free(basis); return 0; }
-    for (int r = 0; r < t; r++) {
-        for (int c = 0; c < t; c++) Mmat[r * t + c] = basis[c * t + r];
-        rhs[r] = basis[t * t + r];
-    }
-    int ok = solve_linear_system_over_gfq(Mmat, rhs, sol, t);
-    free(Mmat); free(rhs); free(basis);
-    if (ok != 0) { free(sol); return 0; }
-
-    // Construct g(x)
-    memset(g->coeffs, 0, (g->max_degree + 1) * sizeof(gf_elem_t));
-    for (int i = 0; i < t; i++) polynomial_set_coeff(g, i, sol[i]);
-    polynomial_set_coeff(g, t, 1);
-    free(sol);
-    return 1;
-}
-
-mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
-    // Keep attempting the Gaussian path until success; deterministically no fallback
-    int max_attempts = 800;
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
-        if (build_minpoly_gaussian(g, random_bits)) {
-            return MCELIECE_SUCCESS;
-        }
+    // Check irreducibility over GF(2^m)
+    if (is_irreducible_over_gfq(g)) {
+        return MCELIECE_SUCCESS;
     }
     return MCELIECE_ERROR_KEYGEN_FAIL;
 }
