@@ -1,4 +1,5 @@
 #include "mceliece_keygen.h"
+#include "mceliece_genpoly.h"
 
 
 
@@ -496,8 +497,9 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
     int coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8;
     if (coeff_pool_bytes <= 0) coeff_pool_bytes = (t * m + 7) / 8;
 
-    // Build a monic random polynomial of degree t from random_bits
-    polynomial_set_coeff(g, t, 1);
+    // Build f(x) with degree < t from random bits (m bits per coefficient)
+    gf_elem_t *f = malloc(sizeof(gf_elem_t) * t);
+    if (!f) return MCELIECE_ERROR_MEMORY;
     int bit_cursor = 0;
     for (int i = 0; i < t; i++) {
         int byte_idx = bit_cursor / 8;
@@ -509,17 +511,23 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
             if (byte_idx + 2 < coeff_pool_bytes) val |= ((uint32_t)random_bits[byte_idx + 2] << 16);
             val >>= bit_off;
         }
-        gf_elem_t coeff = (gf_elem_t)(val & ((1u << m) - 1));
-        polynomial_set_coeff(g, i, coeff);
+        f[i] = (gf_elem_t)(val & ((1u << m) - 1));
         bit_cursor += m;
     }
-    if (g->coeffs[0] == 0) polynomial_set_coeff(g, 0, 1);
+    if (f[t - 1] == 0) f[t - 1] = 1;
 
-    // Check irreducibility over GF(2^m)
-    if (is_irreducible_over_gfq(g)) {
-        return MCELIECE_SUCCESS;
-    }
-    return MCELIECE_ERROR_KEYGEN_FAIL;
+    // Compute connection polynomial coefficients via genpoly_gen
+    gf_elem_t *gl = malloc(sizeof(gf_elem_t) * t);
+    if (!gl) { free(f); return MCELIECE_ERROR_MEMORY; }
+    if (genpoly_gen(gl, f) != 0) { free(f); free(gl); return MCELIECE_ERROR_KEYGEN_FAIL; }
+
+    // Form monic g(x) = x^t + sum_{i=0}^{t-1} gl[i] x^i
+    for (int i = 0; i < t; i++) polynomial_set_coeff(g, i, gl[i]);
+    polynomial_set_coeff(g, t, 1);
+
+    free(f);
+    free(gl);
+    return MCELIECE_SUCCESS;
 }
 
 
