@@ -77,7 +77,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
     int max_attempts = 400;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // 1. Generate long random string E using current seed delta
+        // 1. Generate long random string E using PRG seeded by delta (KAT: delta comes from DRBG)
         mceliece_prg(sk->delta, E, prg_output_len_bytes);
 
         // 2. Extract next retry seed delta' from the end of E
@@ -295,16 +295,14 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
         // 我们只关心 pi_val 的低 m 位
         pi_val &= (1 << m) - 1;
 
-        // 规范中的公式将 j=0 对应到最高位 z^(m-1)。
-        // 这在标准表示法中与直接使用整数值是等价的。
-        // 例如：pi_val = 13 (0...1101), m=4.
-        // j=0 (LSB=1) -> 1*z^0
-        // j=1 (LSB=0) -> 0*z^1
-        // j=2 (LSB=1) -> 1*z^2
-        // j=3 (MSB=1) -> 1*z^3
-        // sum = z^3+z^2+1, which is the element 13.
-        // 所以直接赋值是正确的。
-        current_alpha = (gf_elem_t)pi_val;
+        // 规范中的公式: α_i = Σ_{j=0}^{m-1} π(i)_j · z^{m-1-j}
+        // 我们的GF表示使用位 j 作为 z^j 的系数。因此需要对 m 位进行“镜像”放置：
+        // 把 π(i)_j 放到 z^{m-1-j} 的位上。
+        current_alpha = 0;
+        for (int j = 0; j < m; j++) {
+            int bit = (pi_val >> j) & 1;
+            if (bit) current_alpha |= (gf_elem_t)(1u << (m - 1 - j));
+        }
         alpha[i] = current_alpha;
     }
 
@@ -313,205 +311,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 }
 
 
-// 检查多项式是否不可约的简化方法
-static int is_irreducible_simple(const polynomial_t *poly) {
-    if (poly->degree <= 0) return 0;
 
-    // 对于小度数多项式，我们可以使用简单的检查
-    // 对于大度数多项式，这只是一个启发式方法
-
-    // 检查常数项不为零
-    if (poly->coeffs[0] == 0) return 0;
-
-    // 检查是否有线性因子（对于GF(2^m)中的元素）
-    // 这需要检查所有可能的根
-    int m = MCELIECE_M;
-    int q = 1 << m;
-
-    // 只检查前几个元素作为根（为了效率）
-    int max_roots_to_check = (q < 100) ? q : 100;
-    for (int i = 0; i < max_roots_to_check; i++) {
-        if (polynomial_eval(poly, i) == 0) {
-            return 0; // 找到了根，多项式可约
-        }
-    }
-
-    return 1; // 可能是不可约的
-}
-
-// Generate irreducible polynomial - simplified reliable version
-static void poly_make_monic(polynomial_t *a) {
-    if (a->degree < 0) return;
-    gf_elem_t lc = a->coeffs[a->degree];
-    if (lc == 1) return;
-    gf_elem_t inv = gf_inv(lc);
-    for (int i = 0; i <= a->degree; i++) {
-        a->coeffs[i] = gf_mul(a->coeffs[i], inv);
-    }
-}
-
-static void poly_mod(polynomial_t *r, const polynomial_t *a, const polynomial_t *mod) {
-    polynomial_div(NULL, r, a, mod);
-}
-
-static void poly_square(polynomial_t *out, const polynomial_t *a) {
-    memset(out->coeffs, 0, (out->max_degree + 1) * sizeof(gf_elem_t));
-    out->degree = -1;
-    for (int i = 0; i <= a->degree; i++) {
-        gf_elem_t sq = gf_mul(a->coeffs[i], a->coeffs[i]);
-        int idx = 2 * i;
-        if (idx <= out->max_degree) {
-            out->coeffs[idx] = gf_add(out->coeffs[idx], sq);
-            if (out->coeffs[idx] != 0 && idx > out->degree) out->degree = idx;
-        }
-    }
-}
-
-static void poly_square_mod(polynomial_t *out, const polynomial_t *a, const polynomial_t *mod) {
-    int tmp_deg = 2 * a->degree + 2;
-    if (tmp_deg < 0) tmp_deg = 0;
-    polynomial_t *tmp = polynomial_create(tmp_deg);
-    poly_square(tmp, a);
-    poly_mod(out, tmp, mod);
-    polynomial_free(tmp);
-}
-
-static void poly_add(polynomial_t *out, const polynomial_t *a, const polynomial_t *b) {
-    polynomial_add(out, a, b);
-}
-
-static void poly_set_x(polynomial_t *xpoly) {
-    memset(xpoly->coeffs, 0, (xpoly->max_degree + 1) * sizeof(gf_elem_t));
-    xpoly->degree = 1;
-    xpoly->coeffs[1] = 1;
-}
-
-static void poly_copy(polynomial_t *dst, const polynomial_t *src) { polynomial_copy(dst, src); }
-
-static void poly_gcd(polynomial_t *g, const polynomial_t *a_in, const polynomial_t *b_in) {
-    polynomial_t *a = polynomial_create(a_in->max_degree);
-    polynomial_t *b = polynomial_create(b_in->max_degree);
-    poly_copy(a, a_in);
-    poly_copy(b, b_in);
-    while (!polynomial_is_zero(b)) {
-        polynomial_t *r = polynomial_create(a->max_degree);
-        polynomial_div(NULL, r, a, b);
-        poly_copy(a, b);
-        poly_copy(b, r);
-        polynomial_free(r);
-    }
-    poly_make_monic(a);
-    poly_copy(g, a);
-    polynomial_free(a);
-    polynomial_free(b);
-}
-
-static void poly_x_pow_2e_mod(polynomial_t *out, int e, const polynomial_t *mod) {
-    // Compute X^(2^e) mod mod, via repeated Frobenius squaring on A starting from X
-    polynomial_t *A = polynomial_create(2 * mod->degree + 2);
-    polynomial_t *tmp = polynomial_create(2 * mod->degree + 2);
-    poly_set_x(A);
-    for (int s = 0; s < e; s++) {
-        poly_square_mod(tmp, A, mod);
-        poly_copy(A, tmp);
-    }
-    poly_copy(out, A);
-    polynomial_free(A);
-    polynomial_free(tmp);
-}
-
-static int is_irreducible_over_gfq(const polynomial_t *f) {
-    int n = f->degree;
-    int m = MCELIECE_M;
-    if (n <= 0) return 0;
-    if (f->coeffs[0] == 0) return 0; // divisible by X
-
-    // Distinct prime divisors of n
-    int primes[16];
-    int num_primes = 0;
-    int tleft = n;
-    for (int p = 2; p * p <= tleft; p++) {
-        if (tleft % p == 0) {
-            primes[num_primes++] = p;
-            while (tleft % p == 0) tleft /= p;
-        }
-    }
-    if (tleft > 1) primes[num_primes++] = tleft;
-
-    // Prepare helper polys
-    int work_deg = 2 * n + 2;
-    polynomial_t *B = polynomial_create(work_deg);
-    polynomial_t *H = polynomial_create(work_deg);
-    polynomial_t *G = polynomial_create(work_deg);
-    polynomial_t *f_copy = polynomial_create(f->max_degree);
-    poly_copy(f_copy, f);
-
-    // For each distinct prime p | n, check gcd(X^{q^{n/p}} - X, f) = 1
-    for (int i = 0; i < num_primes; i++) {
-        int p = primes[i];
-        int k = n / p;
-        int e = m * k; // compute X^{2^e} mod f
-        poly_x_pow_2e_mod(B, e, f_copy);
-        // H = B - X = B + X
-        polynomial_t *Xpoly = polynomial_create(work_deg);
-        poly_set_x(Xpoly);
-        poly_add(H, B, Xpoly);
-        polynomial_free(Xpoly);
-        poly_gcd(G, H, f_copy);
-        if (G->degree != 0) { // gcd != 1
-            polynomial_free(B); polynomial_free(H); polynomial_free(G); polynomial_free(f_copy);
-            return 0;
-        }
-    }
-
-    // Final check: f | (X^{q^n} - X)
-    int e_final = m * n;
-    poly_x_pow_2e_mod(B, e_final, f_copy);
-    polynomial_t *Xpoly = polynomial_create(work_deg);
-    poly_set_x(Xpoly);
-    poly_add(H, B, Xpoly);
-    polynomial_free(Xpoly);
-    // If (X^{q^n} - X) mod f == 0, then H mod f == 0
-    polynomial_t *R = polynomial_create(work_deg);
-    poly_mod(R, H, f_copy);
-    int zero = polynomial_is_zero(R);
-    polynomial_free(R);
-
-    polynomial_free(B); polynomial_free(H); polynomial_free(G); polynomial_free(f_copy);
-    return zero;
-}
-
-// Solve square linear system over GF(2^m) with Gauss-Jordan
-static int solve_linear_system_over_gfq(gf_elem_t *M, gf_elem_t *b, gf_elem_t *x, int n) {
-    for (int col = 0, row = 0; col < n && row < n; col++, row++) {
-        int piv = -1;
-        for (int r = row; r < n; r++) {
-            if (M[r * n + col] != 0) { piv = r; break; }
-        }
-        if (piv == -1) return -1;
-        if (piv != row) {
-            for (int c = col; c < n; c++) {
-                gf_elem_t tmp = M[row * n + c];
-                M[row * n + c] = M[piv * n + c];
-                M[piv * n + c] = tmp;
-            }
-            gf_elem_t tb = b[row]; b[row] = b[piv]; b[piv] = tb;
-        }
-        gf_elem_t inv = gf_inv(M[row * n + col]);
-        for (int c = col; c < n; c++) M[row * n + c] = gf_mul(M[row * n + c], inv);
-        b[row] = gf_mul(b[row], inv);
-        for (int r = 0; r < n; r++) {
-            if (r == row) continue;
-            gf_elem_t factor = M[r * n + col];
-            if (factor != 0) {
-                for (int c = col; c < n; c++) M[r * n + c] = gf_add(M[r * n + c], gf_mul(factor, M[row * n + c]));
-                b[r] = gf_add(b[r], gf_mul(factor, b[row]));
-            }
-        }
-    }
-    for (int i = 0; i < n; i++) x[i] = b[i];
-    return 0;
-}
 
 mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
     int t = MCELIECE_T;

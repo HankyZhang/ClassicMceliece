@@ -35,8 +35,8 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
 // Input: syndrome sequence s[0], s[1], ..., s[2t-1]
 // Output: error locator polynomial sigma and error evaluator polynomial omega
 mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
-                                  polynomial_t *sigma, polynomial_t *omega) {
-    if (!syndrome || !sigma || !omega) {
+                                  polynomial_t *sigma) {
+    if (!syndrome || !sigma) {
         return MCELIECE_ERROR_INVALID_PARAM;
     }
 
@@ -109,45 +109,10 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
     // Output error locator polynomial
     polynomial_copy(sigma, C);
 
-    // Calculate error evaluator polynomial omega
-    // omega(x) = sigma(x) * S(x) mod x^(2t)
-    // where S(x) = s[0] + s[1]*x + s[2]*x^2 + ...
-
-    // Construct syndrome polynomial S(x)
-    polynomial_t *S = polynomial_create(2 * MCELIECE_T - 1);
-    if (!S) {
-        polynomial_free(C);
-        polynomial_free(B);
-        polynomial_free(T);
-        return MCELIECE_ERROR_MEMORY;
-    }
-
-    for (int i = 0; i < 2 * MCELIECE_T; i++) {
-        polynomial_set_coeff(S, i, syndrome[i]);
-    }
-
-    // Calculate first 2t terms of sigma * S
-    memset(omega->coeffs, 0, (omega->max_degree + 1) * sizeof(gf_elem_t));
-    omega->degree = -1;
-
-    for (int i = 0; i <= sigma->degree; i++) {
-        if (sigma->coeffs[i] != 0) {
-            for (int j = 0; j <= S->degree && (i + j) < 2 * MCELIECE_T; j++) {
-                if (S->coeffs[j] != 0 && (i + j) <= omega->max_degree) {
-                    gf_elem_t term = gf_mul(sigma->coeffs[i], S->coeffs[j]);
-                    gf_elem_t current_coeff = ((i + j) <= omega->degree) ? omega->coeffs[i + j] : 0;
-                    gf_elem_t new_coeff = gf_add(current_coeff, term);
-                    polynomial_set_coeff(omega, i + j, new_coeff);
-                }
-            }
-        }
-    }
-
     // Cleanup
     polynomial_free(C);
     polynomial_free(B);
     polynomial_free(T);
-    polynomial_free(S);
 
     return MCELIECE_SUCCESS;
 }
@@ -227,7 +192,7 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
         return MCELIECE_ERROR_MEMORY;
     }
 
-    mceliece_error_t ret = berlekamp_massey(syndrome, sigma, omega);
+    mceliece_error_t ret = berlekamp_massey(syndrome, sigma);
     if (ret != MCELIECE_SUCCESS) {
         free(syndrome);
         polynomial_free(sigma);
@@ -249,7 +214,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
     if (ret != MCELIECE_SUCCESS) {
         free(syndrome);
         polynomial_free(sigma);
-        polynomial_free(omega);
         free(error_positions);
         return ret;
     }
@@ -261,7 +225,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
         *decode_success = 0;
         free(syndrome);
         polynomial_free(sigma);
-        polynomial_free(omega);
         free(error_positions);
         return MCELIECE_SUCCESS;  // Not an error, just decoding failure
     }
@@ -278,7 +241,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
             *decode_success = 0;
             free(syndrome);
             polynomial_free(sigma);
-            polynomial_free(omega);
             free(error_positions);
             return MCELIECE_SUCCESS;
         }
@@ -295,7 +257,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
     // 清理内存
     free(syndrome);
     polynomial_free(sigma);
-    polynomial_free(omega);
     free(error_positions);
 
     return MCELIECE_SUCCESS;

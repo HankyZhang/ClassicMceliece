@@ -15,22 +15,10 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
     uint8_t *random_bytes = malloc(random_bytes_len);
     if (!random_bytes) return MCELIECE_ERROR_MEMORY;
 
-    // Generate a random seed using the system's randomness
+    // Use PRG seeded by local seed for non-KAT; KAT path provides seeded function below
     uint8_t seed[MCELIECE_L_BYTES];
-    
-    // Use system randomness (this is a simple implementation)
-    // In production, you'd want a proper CSPRNG
     FILE *urandom = fopen("/dev/urandom", "rb");
-    if (urandom) {
-        fread(seed, 1, MCELIECE_L_BYTES, urandom);
-        fclose(urandom);
-    } else {
-        // Fallback to time-based seed (not cryptographically secure)
-        for (int i = 0; i < MCELIECE_L_BYTES; i++) {
-            seed[i] = (uint8_t)(rand() ^ (clock() >> i));
-        }
-    }
-    
+    if (urandom) { fread(seed, 1, MCELIECE_L_BYTES, urandom); fclose(urandom);} else { for (int i=0;i<MCELIECE_L_BYTES;i++){ seed[i]=(uint8_t)(rand() ^ (clock()>>i)); }}
     mceliece_prg(seed, random_bytes, random_bytes_len);
 
     // 2. 为每个 j ∈ {0, 1, ..., τ-1}，定义 d_j
@@ -87,6 +75,56 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
     free(positions);
     free(d_values);
     free(random_bytes);
+    return MCELIECE_SUCCESS;
+}
+
+
+// Deterministic KAT variant using provided 32-byte seed
+mceliece_error_t fixed_weight_vector_seeded(uint8_t *e, int n, int t, const uint8_t *seed32) {
+    memset(e, 0, (n + 7) / 8);
+
+    int tau = t + 10;
+    size_t random_bytes_len = tau * 2;
+    uint8_t *random_bytes = malloc(random_bytes_len);
+    if (!random_bytes) return MCELIECE_ERROR_MEMORY;
+
+    // Use PRG seeded deterministically
+    mceliece_prg(seed32, random_bytes, random_bytes_len);
+
+    int *d_values = malloc(tau * sizeof(int));
+    if (!d_values) { free(random_bytes); return MCELIECE_ERROR_MEMORY; }
+
+    for (int j = 0; j < tau; j++) {
+        uint16_t d_j = (uint16_t)random_bytes[j * 2] |
+                       ((uint16_t)random_bytes[j * 2 + 1] << 8);
+        d_values[j] = d_j % n;
+    }
+
+    int *positions = malloc(t * sizeof(int));
+    if (!positions) { free(random_bytes); free(d_values); return MCELIECE_ERROR_MEMORY; }
+
+    int unique_count = 0;
+    int max_attempts = tau * 2;
+    int attempts = 0;
+
+    for (int i = 0; i < tau && unique_count < t && attempts < max_attempts; i++) {
+        int pos = d_values[i];
+        int is_unique = 1;
+        for (int j = 0; j < unique_count; j++) {
+            if (positions[j] == pos) { is_unique = 0; break; }
+        }
+        if (is_unique) positions[unique_count++] = pos;
+        attempts++;
+    }
+
+    if (unique_count < t) {
+        free(positions); free(d_values); free(random_bytes);
+        return MCELIECE_ERROR_KEYGEN_FAIL;
+    }
+
+    for (int i = 0; i < t; i++) vector_set_bit(e, positions[i], 1);
+
+    free(positions); free(d_values); free(random_bytes);
     return MCELIECE_SUCCESS;
 }
 

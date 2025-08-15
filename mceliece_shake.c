@@ -220,3 +220,23 @@ void mceliece_prg(const uint8_t *seed, uint8_t *output, size_t output_len) {
     // 生成所需长度的输出
     shake256_squeeze(&ctx, output, output_len);
 }
+
+// KAT DRBG (SHAKE256 XOF) implementation
+static shake256_ctx kat_ctx;
+static int kat_initialized = 0;
+
+void kat_drbg_init(const uint8_t seed[48]) {
+    shake256_init(&kat_ctx);
+    shake256_absorb(&kat_ctx, seed, 48);
+    shake256_finalize(&kat_ctx);
+    kat_initialized = 1;
+}
+
+void kat_drbg_randombytes(uint8_t *out, size_t outlen) {
+    if (!kat_initialized) {
+        // If not initialized, default to zeros
+        memset(out, 0, outlen);
+        return;
+    }
+    shake256_squeeze(&kat_ctx, out, outlen);
+}

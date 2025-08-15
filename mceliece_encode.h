@@ -14,6 +14,8 @@ extern "C" {
 // Generate a random vector with fixed Hamming weight t
 // Used in the encapsulation phase to generate the error vector e
 mceliece_error_t fixed_weight_vector(uint8_t *output, int vector_len, int target_weight);
+// Deterministic variant for KAT: generate fixed-weight vector using a provided 32-byte seed
+mceliece_error_t fixed_weight_vector_seeded(uint8_t *output, int vector_len, int target_weight, const uint8_t *seed32);
 
 // Encode an error vector using the public key matrix T
 // Computes C = H * e where H = [I_mt | T]

@@ -17,9 +17,9 @@ extern "C" {
 void compute_syndrome(const uint8_t *received, const polynomial_t *g,
                       const gf_elem_t *alpha, gf_elem_t *syndrome);
 
-// Berlekamp-Massey algorithm - finds error locator and evaluator polynomials
+// Berlekamp-Massey algorithm - compute only error locator polynomial sigma
 mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
-                                 polynomial_t *sigma, polynomial_t *omega);
+                                 polynomial_t *sigma);
 
 // Chien search - finds roots of error locator polynomial
 mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
@@ -29,6 +29,13 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
 mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
                              const gf_elem_t *alpha, uint8_t *error_vector,
                              int *decode_success);
+
+// Ciphertext decoding helper used by tests/KAT
+mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_t *sk,
+                                  uint8_t *error_vector, int *success);
+// Decode 函数
+mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_t *sk,
+    uint8_t *error_vector, int *success);
 
 
 
