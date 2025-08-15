@@ -77,7 +77,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
     int max_attempts = 400;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // 1. Generate long random string E using PRG seeded by delta (KAT: delta comes from DRBG)
+        // 1. Generate long random string E using current seed delta
         mceliece_prg(sk->delta, E, prg_output_len_bytes);
 
         // 2. Extract next retry seed delta' from the end of E
@@ -285,9 +285,9 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
     free(pairs); // pairs 不再需要
 
     // 5. 根据置换 pi 生成最终的 alpha 序列
-    //    规范公式: α_i = Σ π(i)_j * z^(m-1-j) for j=0 to m-1
-    //    在标准二进制表示中，这恰好等价于将整数 π(i) 直接作为 F_q 的元素。
-    //    我们在这里显式地实现它，以确保没有误解。
+    //    规范公式: α_i = Σ_{j=0}^{m-1} π(i)_j · z^(m-1-j)
+    //    这意味着 π(i) 的第 j 位（从最低位 j=0 开始）映射到 GF(2^m)
+    //    中的 z^(m-1-j) 项。实现时需要对 m 位进行“位反转”映射。
     for (int i = 0; i < q; i++) {
         gf_elem_t current_alpha = 0;
         uint16_t pi_val = pi[i];
@@ -295,14 +295,14 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
         // 我们只关心 pi_val 的低 m 位
         pi_val &= (1 << m) - 1;
 
-        // 规范中的公式: α_i = Σ_{j=0}^{m-1} π(i)_j · z^{m-1-j}
-        // 我们的GF表示使用位 j 作为 z^j 的系数。因此需要对 m 位进行“镜像”放置：
-        // 把 π(i)_j 放到 z^{m-1-j} 的位上。
-        current_alpha = 0;
+        // 将 π(i) 的 m 位按公式映射到 z^(m-1-j) 位置（位反转）
+        gf_elem_t mapped = 0;
         for (int j = 0; j < m; j++) {
-            int bit = (pi_val >> j) & 1;
-            if (bit) current_alpha |= (gf_elem_t)(1u << (m - 1 - j));
+            if (pi_val & (1u << j)) {
+                mapped |= (gf_elem_t)(1u << (m - 1 - j));
+            }
         }
+        current_alpha = mapped;
         alpha[i] = current_alpha;
     }
 

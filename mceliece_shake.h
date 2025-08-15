@@ -30,10 +30,6 @@ void shake256(const uint8_t *input, size_t input_len, uint8_t *output, size_t ou
 void mceliece_hash(uint8_t prefix, const uint8_t *input, size_t input_len, uint8_t *output);
 void mceliece_prg(const uint8_t *seed, uint8_t *output, size_t output_len);
 
-// KAT DRBG interface (SHAKE256-based): deterministic randombytes replacement
-void kat_drbg_init(const uint8_t seed[48]);
-void kat_drbg_randombytes(uint8_t *out, size_t outlen);
-
 #ifdef __cplusplus
 }
 #endif

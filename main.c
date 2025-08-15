@@ -26,7 +26,6 @@ void print_usage(const char *prog_name) {
     printf("  roundtrip - Encode/Decode roundtrip test\n");
     printf("  tampswp   - Tamper sweep test\n");
     printf("  decapfull - Full decapsulation verification\n");
-    printf("  kat       - Run NIST KAT using req/rsp files\n");
     printf("  keygen    - Generate and display key pair\n");
     printf("  demo      - Run complete encryption/decryption demo\n");
     printf("  bench     - Run performance benchmark\n");
@@ -346,11 +345,6 @@ int main(int argc, char *argv[]) {
     }
     else if (strcmp(command, "decapfull") == 0) {
         test_decap_full();
-    }
-    else if (strcmp(command, "kat") == 0) {
-        const char *req = "/Users/zhanghanqi/Downloads/mceliece-kat-20221023/KAT/KAT_kem/mceliece6688128/kat_kem.req";
-        const char *rsp = "/Users/zhanghanqi/Downloads/mceliece-kat-20221023/KAT/KAT_kem/mceliece6688128/kat_kem.rsp";
-        run_kat_file(req, rsp);
     }
     else {
         printf("Unknown command: %s\n", command);

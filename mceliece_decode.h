@@ -30,13 +30,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
                              const gf_elem_t *alpha, uint8_t *error_vector,
                              int *decode_success);
 
-// Ciphertext decoding helper used by tests/KAT
-mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_t *sk,
-                                  uint8_t *error_vector, int *success);
-// Decode 函数
-mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_t *sk,
-    uint8_t *error_vector, int *success);
-
 
 
 #ifdef __cplusplus
