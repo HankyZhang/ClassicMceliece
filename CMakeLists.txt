@@ -20,6 +20,9 @@ set(SOURCES
     mceliece_decode.c
     mceliece_kem.c
     mceliece_genpoly.c
+    kat_drbg.c
+    rng.c
+    controlbits.c
 )
 
 # Header files (for IDE)
@@ -35,6 +38,9 @@ set(HEADERS
     mceliece_decode.h
     mceliece_kem.h
     mceliece_genpoly.h
+    kat_drbg.h
+    rng.h
+    controlbits.h
 )
 
 # Create the executable

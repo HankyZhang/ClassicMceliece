@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <time.h>
 #include "mceliece_kem.h"
+#include "kat_drbg.h"
 #include "mceliece_gf.h"
+#include "controlbits.h"
 // 外部函数声明
 extern void test_mceliece(void);
 extern void run_all_tests(void);
@@ -26,6 +28,9 @@ void print_usage(const char *prog_name) {
     printf("  roundtrip - Encode/Decode roundtrip test\n");
     printf("  tampswp   - Tamper sweep test\n");
     printf("  decapfull - Full decapsulation verification\n");
+    printf("  kat <req> <rsp> - Run NIST KAT using req to produce rsp (DRBG mode)\n");
+    printf("  katint <req> <int> - Produce .int file (encrypt/decrypt error positions)\n");
+    printf("  cbtest           - Verify controlbits Benes routing on a random pi (sanity)\n");
     printf("  keygen    - Generate and display key pair\n");
     printf("  demo      - Run complete encryption/decryption demo\n");
     printf("  bench     - Run performance benchmark\n");
@@ -318,6 +323,45 @@ int main(int argc, char *argv[]) {
     }
     else if (strcmp(command, "demo") == 0) {
         demo_complete();
+    }
+    else if (strcmp(command, "kat") == 0) {
+        if (argc < 4) {
+            printf("Usage: %s kat <req> <rsp>\n", argv[0]);
+            return 1;
+        }
+        // In KAT mode, the caller should initialize DRBG with seed per req lines inside run_kat_file
+        run_kat_file(argv[2], argv[3]);
+    }
+    else if (strcmp(command, "katint") == 0) {
+        if (argc < 4) {
+            printf("Usage: %s katint <req> <int>\n", argv[0]);
+            return 1;
+        }
+        run_kat_int(argv[2], argv[3]);
+    }
+    else if (strcmp(command, "cbtest") == 0) {
+        long long w = MCELIECE_M;
+        long long n = 1LL << w;
+        int16_t *pi = (int16_t*)malloc(sizeof(int16_t) * (size_t)n);
+        if (!pi) { printf("alloc fail\n"); return 1; }
+        // simple random permutation using DRBG if inited, else identity
+        for (long long i = 0; i < n; i++) pi[i] = (int16_t)i;
+        if (kat_drbg_is_inited()) {
+            for (long long i = n - 1; i > 0; i--) {
+                uint8_t rb[2]; kat_drbg_randombytes(rb, 2);
+                uint16_t r = (uint16_t)rb[0] | ((uint16_t)rb[1] << 8);
+                long long j = r % (i + 1);
+                int16_t tmp = pi[i]; pi[i] = pi[j]; pi[j] = tmp;
+            }
+        }
+        size_t cb_len = (size_t)((((2 * w - 1) * n / 2) + 7) / 8);
+        uint8_t *cb = (uint8_t*)malloc(cb_len);
+        if (!cb) { free(pi); printf("alloc fail\n"); return 1; }
+        memset(cb, 0, cb_len);
+        cbits_from_perm_ns(cb, pi, w, n);
+        int ok = controlbits_verify(cb, w, n, pi);
+        printf("controlbits verify: %s\n", ok == 0 ? "PASS" : "FAIL");
+        free(cb); free(pi);
     }
     else if (strcmp(command, "bench") == 0) {
         benchmark();

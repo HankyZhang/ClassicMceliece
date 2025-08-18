@@ -1,6 +1,15 @@
 #include "mceliece_keygen.h"
 #include "mceliece_genpoly.h"
+#include "kat_drbg.h"
 #include "mceliece_kem.h"
+
+static inline uint16_t bitrev_m_u16(uint16_t x, int m) {
+    uint16_t r = 0;
+    for (int j = 0; j < m; j++) {
+        r = (uint16_t)((r << 1) | ((x >> j) & 1U));
+    }
+    return (uint16_t)(r & ((1U << m) - 1U));
+}
 
 
 
@@ -75,9 +84,10 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
     // 复制初始种子到私钥
     memcpy(sk->delta, delta, delta_prime_len_bytes);
 
-    int max_attempts = 400;
+    int max_attempts = 400; // allow retries in both modes; in KAT, DRBG provides fresh bytes per attempt
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // 1. Generate long random string E using current seed delta
+        // 1. Generate long random string E using internal PRG from delta.
+        //    In KAT mode we must NOT consume the global DRBG here to match PQClean.
         mceliece_prg(sk->delta, E, prg_output_len_bytes);
 
         // 2. Extract next retry seed delta' from the end of E
@@ -91,14 +101,14 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
         // 4. Generate support set alpha
         if (generate_field_ordering(sk->alpha, field_ordering_bits_ptr) != MCELIECE_SUCCESS) {
-            printf("[keygen] attempt %d: generate_field_ordering failed (duplicates)\n", attempt+1);
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: generate_field_ordering failed (duplicates)\n", attempt+1);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
 
         // 5. Generate Goppa polynomial g
         if (generate_irreducible_poly_final(&sk->g, irreducible_poly_bits_ptr) != MCELIECE_SUCCESS) {
-            printf("[keygen] attempt %d: generate_irreducible_poly_final failed\n", attempt+1);
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: generate_irreducible_poly_final failed\n", attempt+1);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
@@ -107,7 +117,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         int is_support_set = 1;
         for (int i = 0; i < n_bits; ++i) {
             if (polynomial_eval(&sk->g, sk->alpha[i]) == 0) {
-                printf("[keygen] attempt %d: support check failed: g(alpha[%d])=0\n", attempt+1, i);
+                if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: support check failed: g(alpha[%d])=0\n", attempt+1, i);
                 is_support_set = 0;
                 break;
             }
@@ -125,12 +135,12 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         int mt = MCELIECE_M * MCELIECE_T;
         int n = MCELIECE_N;
         matrix_t *Htmp = matrix_create(mt, n);
-        if (!Htmp) { printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        if (!Htmp) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
         for (int i = 0; i < MCELIECE_T; i++) {
             for (int j = 0; j < MCELIECE_N; j++) {
                 gf_elem_t alpha_power = gf_pow(sk->alpha[j], i);
                 gf_elem_t g_alpha = polynomial_eval(&sk->g, sk->alpha[j]);
-                if (g_alpha == 0) { printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); free(sk->p); sk->p=NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
+                if (g_alpha == 0) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); free(sk->p); sk->p=NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
                 gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
                 for (int bit = 0; bit < MCELIECE_M; bit++) {
                     int bit_value = (M_ij >> bit) & 1;
@@ -141,9 +151,9 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         if (sk->U) { matrix_free((matrix_t*)sk->U); sk->U = NULL; }
         if (sk->U_inv) { matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL; }
         sk->U = (void*)matrix_create(mt, mt);
-        if (!sk->U) { printf("[keygen] attempt %d: matrix_create U failed\n", attempt+1); matrix_free(Htmp); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        if (!sk->U) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create U failed\n", attempt+1); matrix_free(Htmp); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
         if (reduce_to_systematic_form_record(Htmp, (matrix_t*)sk->U, sk->p) != 0) {
-            printf("[keygen] attempt %d: reduce_to_systematic_form_record failed (singular)\n", attempt+1);
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form_record failed (singular)\n", attempt+1);
             free(sk->p); sk->p = NULL;
             matrix_free((matrix_t*)sk->U); sk->U = NULL;
             matrix_free(Htmp);
@@ -174,7 +184,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         // Precompute U_inv
         sk->U_inv = (void*)matrix_create(mt, mt);
         if (!sk->U_inv || matrix_invert((matrix_t*)sk->U, (matrix_t*)sk->U_inv) != 0) {
-            printf("[keygen] attempt %d: matrix_invert(U) failed\n", attempt+1);
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_invert(U) failed\n", attempt+1);
             if (sk->U_inv) { matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL; }
             free(sk->p); sk->p = NULL; matrix_free((matrix_t*)sk->U); sk->U = NULL; matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
@@ -182,14 +192,14 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         }
         matrix_free(Htmp);
 
-        // Self-verify a single KEM round to avoid marginal keys
-        {
+        // Self-verify only in non-KAT mode to avoid consuming DRBG differently
+        if (!kat_drbg_is_inited()) {
             uint8_t ciphertext[MCELIECE_MT_BYTES];
             uint8_t session_key1[MCELIECE_L_BYTES];
             uint8_t session_key2[MCELIECE_L_BYTES];
             mceliece_error_t vret = mceliece_encap(pk, ciphertext, session_key1);
             if (vret != MCELIECE_SUCCESS) {
-                printf("[keygen] attempt %d: self-encap failed (%d)\n", attempt+1, vret);
+                if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: self-encap failed (%d)\n", attempt+1, vret);
                 matrix_free((matrix_t*)sk->U); sk->U = NULL;
                 matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL;
                 free(sk->p); sk->p = NULL;
@@ -198,7 +208,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             }
             vret = mceliece_decap(ciphertext, sk, session_key2);
             if (vret != MCELIECE_SUCCESS || memcmp(session_key1, session_key2, MCELIECE_L_BYTES) != 0) {
-                printf("[keygen] attempt %d: self-verify KEM mismatch\n", attempt+1);
+                if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: self-verify KEM mismatch\n", attempt+1);
                 matrix_free((matrix_t*)sk->U); sk->U = NULL;
                 matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL;
                 free(sk->p); sk->p = NULL;
@@ -241,7 +251,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
         return MCELIECE_ERROR_MEMORY;
     }
 
-    // 1. 从随机比特生成 q 个 32-bit 的整数 a_i (小端序)
+    // 1. 从随机比特生成 q 个 32-bit 的整数 a_i (小端序，参考实现常见打包)
     for (int i = 0; i < q; i++) {
         int offset = i * sigma2_bytes;
         uint32_t a_i = (uint32_t)random_bits[offset] |
@@ -272,7 +282,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
         return MCELIECE_ERROR_KEYGEN_FAIL;
     }
 
-    // 3. 按值对 (a_i, i) 进行字典序排序
+    // 3. 按值对 (a_i, i) 进行字典序排序（稳定地）
     qsort(pairs, q, sizeof(pair_t), compare_pairs);
 
     // 4. 定义置换 pi，pi[i] 是排序后第 i 个元素的原始位置
@@ -285,25 +295,10 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
     free(pairs); // pairs 不再需要
 
     // 5. 根据置换 pi 生成最终的 alpha 序列
-    //    规范公式: α_i = Σ_{j=0}^{m-1} π(i)_j · z^(m-1-j)
-    //    这意味着 π(i) 的第 j 位（从最低位 j=0 开始）映射到 GF(2^m)
-    //    中的 z^(m-1-j) 项。实现时需要对 m 位进行“位反转”映射。
+    //    NIST 参考实现使用 bit-reversed 映射：alpha[i] = bitrev_m( pi[i] )
     for (int i = 0; i < q; i++) {
-        gf_elem_t current_alpha = 0;
-        uint16_t pi_val = pi[i];
-
-        // 我们只关心 pi_val 的低 m 位
-        pi_val &= (1 << m) - 1;
-
-        // 将 π(i) 的 m 位按公式映射到 z^(m-1-j) 位置（位反转）
-        gf_elem_t mapped = 0;
-        for (int j = 0; j < m; j++) {
-            if (pi_val & (1u << j)) {
-                mapped |= (gf_elem_t)(1u << (m - 1 - j));
-            }
-        }
-        current_alpha = mapped;
-        alpha[i] = current_alpha;
+        uint16_t v = pi[i] & ((1U << m) - 1U);
+        alpha[i] = (gf_elem_t)bitrev_m_u16(v, m);
     }
 
     free(pi);
@@ -320,25 +315,24 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
     memset(g->coeffs, 0, (g->max_degree + 1) * sizeof(gf_elem_t));
     g->degree = -1;
 
-    int coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8;
-    if (coeff_pool_bytes <= 0) coeff_pool_bytes = (t * m + 7) / 8;
+    // Reference packs sigma1=16 bits per coefficient, but reads across byte boundary over the entire stream
+    int coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8; // 2 * t bytes
+    if (coeff_pool_bytes <= 0) coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8;
 
-    // Build f(x) with degree < t from random bits (m bits per coefficient)
+    // Build f(x) with degree < t from random bits: sliding bit window over the entire pool
     gf_elem_t *f = malloc(sizeof(gf_elem_t) * t);
     if (!f) return MCELIECE_ERROR_MEMORY;
-    int bit_cursor = 0;
+    int bitpos = 0;
     for (int i = 0; i < t; i++) {
-        int byte_idx = bit_cursor / 8;
-        int bit_off = bit_cursor % 8;
-        uint32_t val = 0;
-        if (byte_idx < coeff_pool_bytes) {
-            val = random_bits[byte_idx];
-            if (byte_idx + 1 < coeff_pool_bytes) val |= ((uint32_t)random_bits[byte_idx + 1] << 8);
-            if (byte_idx + 2 < coeff_pool_bytes) val |= ((uint32_t)random_bits[byte_idx + 2] << 16);
-            val >>= bit_off;
-        }
-        f[i] = (gf_elem_t)(val & ((1u << m) - 1));
-        bit_cursor += m;
+        uint32_t acc = 0;
+        int byte_idx = bitpos >> 3;
+        int bit_off = bitpos & 7;
+        if (byte_idx < coeff_pool_bytes) acc |= (uint32_t)random_bits[byte_idx];
+        if (byte_idx + 1 < coeff_pool_bytes) acc |= (uint32_t)random_bits[byte_idx + 1] << 8;
+        if (byte_idx + 2 < coeff_pool_bytes) acc |= (uint32_t)random_bits[byte_idx + 2] << 16;
+        acc >>= bit_off;
+        f[i] = (gf_elem_t)(acc & ((1u << m) - 1));
+        bitpos += MCELIECE_SIGMA1;
     }
     if (f[t - 1] == 0) f[t - 1] = 1;
 
@@ -358,117 +352,7 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
 
 
 
-mceliece_error_t mat_gen(const polynomial_t *g, const gf_elem_t *alpha,
-                         matrix_t *T_out) { // 注意：p_out 参数被移除了
-    if (!g || !alpha || !T_out) {
-        return MCELIECE_ERROR_INVALID_PARAM;
-    }
-
-    int n = MCELIECE_N;
-    int t = MCELIECE_T;
-    int m = MCELIECE_M;
-    int mt = m * t;
-    int k = n - mt;
-
-    // Create Goppa parity-check matrix H
-    matrix_t *H = matrix_create(mt, n);
-    if (!H) return MCELIECE_ERROR_MEMORY;
-
-    // According to specification 1.2.7, construct Goppa code parity-check matrix
-    // M[i,j] = alpha[j]^i / g(alpha[j]) for i=0,...,t-1 and j=0,...,n-1
-
-    for (int i = 0; i < t; i++) {
-        for (int j = 0; j < n; j++) {
-            // Calculate alpha[j]^i using efficient exponentiation
-            gf_elem_t alpha_power = gf_pow(alpha[j], i);
-
-            // Calculate g(alpha[j])
-            gf_elem_t g_alpha = polynomial_eval(g, alpha[j]);
-
-            // Check if g(alpha[j]) is zero (would cause division by zero)
-            if (g_alpha == 0) {
-                matrix_free(H);
-                return MCELIECE_ERROR_KEYGEN_FAIL;
-            }
-
-            // Calculate M[i,j] = alpha[j]^i / g(alpha[j])
-            gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
-
-            // Expand GF(2^m) element into m binary bits
-            for (int bit = 0; bit < m; bit++) {
-                int bit_value = (M_ij >> bit) & 1;
-                matrix_set_bit(H, i * m + bit, j, bit_value);
-            }
-        }
-    }
-
-    // Convert H to systematic form [I_mt | T] and record transforms (optional)
-    // For now, keep existing behavior; later we can switch to _record and store in sk
-    if (reduce_to_systematic_form(H) != 0) {
-        matrix_free(H);
-        return MCELIECE_ERROR_KEYGEN_FAIL; // Matrix is singular
-    }
-
-    // At this point H is in the form [I_mt | T]
-    // Extract public key T from the right side of H
-    for (int i = 0; i < mt; i++) {
-        for (int j = 0; j < k; j++) {
-            int bit = matrix_get_bit(H, i, mt + j);
-            matrix_set_bit(T_out, i, j, bit);
-        }
-    }
-
-    matrix_free(H);
-    return MCELIECE_SUCCESS;
-}
-
-// Variant that also outputs the column permutation used
-mceliece_error_t mat_gen_with_transforms(const polynomial_t *g, const gf_elem_t *alpha,
-                                         matrix_t *T_out, int *perm_out) {
-    if (!g || !alpha || !T_out) {
-        return MCELIECE_ERROR_INVALID_PARAM;
-    }
-
-    int n = MCELIECE_N;
-    int t = MCELIECE_T;
-    int m = MCELIECE_M;
-    int mt = m * t;
-    int k = n - mt;
-
-    matrix_t *H = matrix_create(mt, n);
-    if (!H) return MCELIECE_ERROR_MEMORY;
-
-    for (int i = 0; i < t; i++) {
-        for (int j = 0; j < n; j++) {
-            gf_elem_t alpha_power = gf_pow(alpha[j], i);
-            gf_elem_t g_alpha = polynomial_eval(g, alpha[j]);
-            if (g_alpha == 0) { matrix_free(H); return MCELIECE_ERROR_KEYGEN_FAIL; }
-            gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
-            for (int bit = 0; bit < m; bit++) {
-                int bit_value = (M_ij >> bit) & 1;
-                matrix_set_bit(H, i * m + bit, j, bit_value);
-            }
-        }
-    }
-
-    // Record transforms
-    matrix_t *U = matrix_create(mt, mt);
-    if (!U) { matrix_free(H); return MCELIECE_ERROR_MEMORY; }
-    if (reduce_to_systematic_form_record(H, U, perm_out) != 0) {
-        matrix_free(H); matrix_free(U); return MCELIECE_ERROR_KEYGEN_FAIL;
-    }
-
-    for (int i = 0; i < mt; i++) {
-        for (int j = 0; j < k; j++) {
-            int bit = matrix_get_bit(H, i, mt + j);
-            matrix_set_bit(T_out, i, j, bit);
-        }
-    }
-
-    matrix_free(U);
-    matrix_free(H);
-    return MCELIECE_SUCCESS;
-}
+/* mat_gen and mat_gen_with_transforms were unused. Removed for clarity. */
 
 
 

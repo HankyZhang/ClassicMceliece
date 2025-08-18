@@ -24,11 +24,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha_output, const uint8_t 
 // Irreducible polynomial generation algorithm
 mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits);
 
-// Matrix generation - derives public key matrix T from Goppa code
-mceliece_error_t mat_gen(const polynomial_t *g, const gf_elem_t *alpha, matrix_t *T_out);
-// Variant that records the column permutation used to reach systematic form
-mceliece_error_t mat_gen_with_transforms(const polynomial_t *g, const gf_elem_t *alpha,
-                                         matrix_t *T_out, int *perm_out);
+// Matrix generation helpers were removed (no longer used)
 
 // Control bits computation for Benes network (for permutation)
 mceliece_error_t controlbitsfrompermutation(uint8_t *output, const int *perm, int n);

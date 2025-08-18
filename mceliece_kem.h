@@ -39,6 +39,12 @@ void test_tamper_sweep(void);
 void test_decap_full(void);
 void test_decap_audit(void);
 
+// KAT runner: read NIST KAT req and write rsp deterministically (when DRBG is initialized)
+void run_kat_file(const char *req_path, const char *rsp_path);
+
+// KAT INT runner: read req and write an .int file containing encrypt/decrypt error positions
+void run_kat_int(const char *req_path, const char *int_path);
+
 #ifdef __cplusplus
 }
 #endif

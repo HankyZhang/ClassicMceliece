@@ -1,4 +1,59 @@
 #include "mceliece_kem.h"
+#include "kat_drbg.h"
+#include <ctype.h>
+#include "controlbits.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+// PQClean-style helpers for KAT parity
+static inline uint16_t pqclean_load_gf_le(const unsigned char *src) {
+    uint16_t a = (uint16_t)src[1];
+    a = (uint16_t)((a << 8) | src[0]);
+    uint16_t mask = (uint16_t)((1U << MCELIECE_M) - 1U);
+    return (uint16_t)(a & mask);
+}
+
+static void gen_e_pqclean(unsigned char *e) {
+    int i, j, eq, count;
+    union {
+        uint16_t nums[ MCELIECE_T * 2 ];
+        unsigned char bytes[ MCELIECE_T * 2 * sizeof(uint16_t) ];
+    } buf;
+    uint16_t ind[ MCELIECE_T ];
+    unsigned char val[ MCELIECE_T ];
+
+    for (;;) {
+        kat_drbg_randombytes(buf.bytes, sizeof(buf.bytes));
+        for (i = 0; i < MCELIECE_T * 2; i++) {
+            buf.nums[i] = pqclean_load_gf_le(buf.bytes + i * 2);
+        }
+        count = 0;
+        for (i = 0; i < MCELIECE_T * 2 && count < MCELIECE_T; i++) {
+            if (buf.nums[i] < MCELIECE_N) ind[count++] = buf.nums[i];
+        }
+        if (count < MCELIECE_T) continue;
+        eq = 0;
+        for (i = 1; i < MCELIECE_T; i++) {
+            for (j = 0; j < i; j++) {
+                if (ind[i] == ind[j]) { eq = 1; }
+            }
+        }
+        if (eq == 0) break;
+    }
+
+    for (j = 0; j < MCELIECE_T; j++) {
+        val[j] = (unsigned char)(1U << (ind[j] & 7));
+    }
+    for (i = 0; i < MCELIECE_N / 8; i++) {
+        unsigned char acc = 0;
+        for (j = 0; j < MCELIECE_T; j++) {
+            unsigned char mask = (unsigned char)(-(unsigned char)((uint16_t)i == (ind[j] >> 3)));
+            acc |= (unsigned char)(val[j] & mask);
+        }
+        e[i] = acc;
+    }
+}
 
 // KeyGen算法
 mceliece_error_t mceliece_keygen(public_key_t *pk, private_key_t *sk) {
@@ -8,8 +63,13 @@ mceliece_error_t mceliece_keygen(public_key_t *pk, private_key_t *sk) {
 
     // 生成一个一次性的随机种子 delta
     uint8_t delta[MCELIECE_L_BYTES];
-    // 我们需要一个安全的随机源，但为了编译通过，暂时使用 mceliece_prg
-    mceliece_prg((const uint8_t*)"a_seed_for_the_seed_generator", delta, 32);
+    if (kat_drbg_is_inited()) {
+        // In KAT mode, consume 32 bytes prior to keypair to mirror PQClean seed update
+        kat_drbg_randombytes(delta, 32);
+    } else {
+        // 非KAT模式的回退：使用固定标签通过 PRG 派生
+        mceliece_prg((const uint8_t*)"a_seed_for_the_seed_generator", delta, 32);
+    }
 
     return seeded_key_gen(delta, pk, sk);
 }
@@ -23,11 +83,18 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
     
     int max_attempts = 10;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // Step 1: Generate fixed weight vector e
+        // Step 1: Generate fixed weight vector e (KAT: draw directly from DRBG for exact matching)
         uint8_t *e = malloc(MCELIECE_N_BYTES);
         if (!e) return MCELIECE_ERROR_MEMORY;
         
-        mceliece_error_t ret = fixed_weight_vector(e, MCELIECE_N, MCELIECE_T);
+        mceliece_error_t ret;
+        if (kat_drbg_is_inited()) {
+            memset(e, 0, MCELIECE_N_BYTES);
+            gen_e_pqclean(e);
+            ret = MCELIECE_SUCCESS;
+        } else {
+            ret = fixed_weight_vector(e, MCELIECE_N, MCELIECE_T);
+        }
         if (ret != MCELIECE_SUCCESS) {
             free(e);
             if (ret == MCELIECE_ERROR_KEYGEN_FAIL) {
@@ -40,20 +107,21 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         // Step 2: Calculate C = Encode(e, T)
         encode_vector(e, &pk->T, ciphertext);
         
-        // Debug: Print error vector info
+        // Debug prints disabled in KAT mode
         int weight = vector_weight(e, MCELIECE_N_BYTES);
-        printf("Debug: Generated error vector with weight %d, first 16 positions: ", weight);
-        int count = 0;
-        for (int i = 0; i < MCELIECE_N && count < 16; i++) {
-            if (vector_get_bit(e, i)) {
-                printf("%d ", i);
-                count++;
+        if (!kat_drbg_is_inited()) {
+            printf("Debug: Generated error vector with weight %d, first 16 positions: ", weight);
+            int count = 0;
+            for (int i = 0; i < MCELIECE_N && count < 16; i++) {
+                if (vector_get_bit(e, i)) {
+                    printf("%d ", i);
+                    count++;
+                }
             }
+            printf("\n");
+            // TEST: Verify that C = H * e where H = [I_mt | T]
+            printf("Debug: Testing encapsulation correctness (C = H * e)...\n");
         }
-        printf("\n");
-        
-        // TEST: Verify that C = H * e where H = [I_mt | T]
-        printf("Debug: Testing encapsulation correctness (C = H * e)...\n");
         
         // Reconstruct the full H matrix [I_mt | T]
         int mt = MCELIECE_M * MCELIECE_T;
@@ -94,13 +162,15 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
                 }
             }
             
-            printf("Debug: C = H*e verification: %s\n", matches ? "PASSED" : "FAILED");
-            if (!matches) {
-                printf("Debug: First 8 bytes - Expected: ");
-                for (int i = 0; i < 8; i++) printf("%02x ", ciphertext[i]);
-                printf("\nDebug: First 8 bytes - Computed: ");
-                for (int i = 0; i < 8; i++) printf("%02x ", reconstructed_C[i]);
-                printf("\n");
+            if (!kat_drbg_is_inited()) {
+                printf("Debug: C = H*e verification: %s\n", matches ? "PASSED" : "FAILED");
+                if (!matches) {
+                    printf("Debug: First 8 bytes - Expected: ");
+                    for (int i = 0; i < 8; i++) printf("%02x ", ciphertext[i]);
+                    printf("\nDebug: First 8 bytes - Computed: ");
+                    for (int i = 0; i < 8; i++) printf("%02x ", reconstructed_C[i]);
+                    printf("\n");
+                }
             }
             
             free(reconstructed_C);
@@ -166,11 +236,11 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     
     if (!decode_success) {
         // Decoding failed, use backup vector s
-        printf("Debug: Decoding failed, using backup vector s\n");
+        if (!kat_drbg_is_inited()) printf("Debug: Decoding failed, using backup vector s\n");
         memcpy(e, sk->s, MCELIECE_N_BYTES);
         b = 0;
     } else {
-        printf("Debug: Decoding succeeded, using recovered error vector\n");
+        if (!kat_drbg_is_inited()) printf("Debug: Decoding succeeded, using recovered error vector\n");
     }
     
     // Step 4: Calculate K = Hash(b, e, C)
@@ -509,6 +579,204 @@ done:
     public_key_free(pk); private_key_free(sk);
 }
 
+// Hex parser for KAT
+static int hex2bin(const char *hex, uint8_t *out, size_t outlen) {
+    size_t n = 0; int nybble = -1;
+    for (const char *p = hex; *p && n < outlen; p++) {
+        if (isspace((unsigned char)*p)) continue;
+        int v;
+        if ('0' <= *p && *p <= '9') v = *p - '0';
+        else if ('a' <= *p && *p <= 'f') v = *p - 'a' + 10;
+        else if ('A' <= *p && *p <= 'F') v = *p - 'A' + 10;
+        else break;
+        if (nybble < 0) { nybble = v; }
+        else { out[n++] = (uint8_t)((nybble << 4) | v); nybble = -1; }
+    }
+    return (int)n;
+}
+
+void run_kat_file(const char *req_path, const char *rsp_path) {
+    FILE *fin = fopen(req_path, "r");
+    if (!fin) { printf("KAT: cannot open req %s\n", req_path); return; }
+    FILE *fout = fopen(rsp_path, "w");
+    if (!fout) { printf("KAT: cannot open rsp %s\n", rsp_path); fclose(fin); return; }
+
+    char line[8192];
+    uint8_t seed48[48];
+    int count = -1;
+    while (fgets(line, sizeof(line), fin)) {
+        if (strncmp(line, "count =", 7) == 0) {
+            count = atoi(line + 7);
+            fprintf(fout, "count = %d\n", count);
+        } else if (strncmp(line, "seed =", 6) == 0) {
+            const char *hex = strchr(line, '=');
+            if (!hex) continue; hex++;
+            while (*hex && isspace((unsigned char)*hex)) hex++;
+            int got = hex2bin(hex, seed48, sizeof seed48);
+            if (got != 48) { printf("KAT: bad seed at count %d\n", count); continue; }
+
+            kat_drbg_init(seed48);
+
+            public_key_t *pk = public_key_create();
+            private_key_t *sk = private_key_create();
+            if (!pk || !sk) { printf("KAT: alloc fail\n"); break; }
+            if (mceliece_keygen(pk, sk) != MCELIECE_SUCCESS) { printf("KAT: keygen fail\n"); public_key_free(pk); private_key_free(sk); continue; }
+
+            uint8_t ct[MCELIECE_MT_BYTES];
+            uint8_t ss[MCELIECE_L_BYTES];
+            if (mceliece_encap(pk, ct, ss) != MCELIECE_SUCCESS) { printf("KAT: encap fail\n"); public_key_free(pk); private_key_free(sk); continue; }
+
+            fprintf(fout, "seed = ");
+            for (int i = 0; i < 48; i++) fprintf(fout, "%02X", seed48[i]);
+            fprintf(fout, "\n");
+            // pk serialization: row-packed T
+            fprintf(fout, "pk = ");
+            for (int r = 0; r < pk->T.rows; r++) {
+                int row_bytes = pk->T.cols_bytes;
+                const uint8_t *row = pk->T.data + r * row_bytes;
+                for (int b = 0; b < row_bytes; b++) fprintf(fout, "%02X", row[b]);
+            }
+            fprintf(fout, "\n");
+            // sk serialization: delta || c(8 LE) || g(t coeffs, 2B LE) || controlbits((2m-1)2^(m-4) bytes) || s
+            fprintf(fout, "sk = ");
+            for (int i = 0; i < MCELIECE_L_BYTES; i++) fprintf(fout, "%02X", sk->delta[i]);
+            for (int i = 0; i < 8; i++) fprintf(fout, "%02X", (unsigned int)((sk->c >> (8*i)) & 0xFF));
+            for (int i = 0; i < MCELIECE_T; i++) {
+                gf_elem_t a = (i <= sk->g.degree) ? sk->g.coeffs[i] : 0;
+                fprintf(fout, "%02X%02X", (unsigned int)(a & 0xFF), (unsigned int)((a >> 8) & 0xFF));
+            }
+            // compute control bits from permutation p (size 2^m). We expect sk->p has length MCELIECE_N
+            // Build pi of size 2^m: initialize to identity, then place the first N entries using sk->p mapping.
+            {
+                // Build full 2^m permutation pi from ORIGINAL field-ordering support (before column permutation)
+                long long m = MCELIECE_M;
+                long long n_full = 1LL << m; // 8192 for m=13
+                size_t pi_bytes = sizeof(int16_t) * (size_t)n_full;
+                int16_t *pi = (int16_t*)malloc(pi_bytes);
+                if (!pi) { public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
+                // map: field value -> original index in bitrev order
+                int16_t *val_to_index = (int16_t*)malloc(sizeof(int16_t) * (size_t)n_full);
+                if (!val_to_index) { free(pi); public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
+                for (long long i = 0; i < n_full; i++) {
+                    // inline bit-reverse of lower m bits
+                    uint16_t x = (uint16_t)i;
+                    uint16_t r = 0;
+                    for (int bi = 0; bi < MCELIECE_M; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
+                    uint16_t v = (uint16_t)(r & ((1U << MCELIECE_M) - 1U));
+                    val_to_index[v] = (int16_t)i;
+                }
+                // Recover original alpha ordering (before systematic column permutation):
+                // alpha_old[orig] = alpha_new[sys], where sys = sk->p[orig]
+                gf_elem_t *alpha_old = (gf_elem_t*)malloc(sizeof(gf_elem_t) * MCELIECE_N);
+                if (!alpha_old) { free(val_to_index); free(pi); public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
+                for (int orig = 0; orig < MCELIECE_N; orig++) {
+                    int sys = sk->p ? sk->p[orig] : orig;
+                    if (sys < 0 || sys >= MCELIECE_N) { alpha_old[orig] = 0; }
+                    else { alpha_old[orig] = sk->alpha[sys]; }
+                }
+                // initialize positions to -1
+                for (long long i = 0; i < n_full; i++) pi[i] = (int16_t)-1;
+                // place support elements (original field ordering) in positions 0..N-1
+                for (int j = 0; j < MCELIECE_N; j++) {
+                    uint16_t a = (uint16_t)alpha_old[j];
+                    int16_t src = val_to_index[a];
+                    if (src >= 0) pi[src] = (int16_t)j;
+                }
+                // assign remaining domain points to identity positions (match reference behavior)
+                for (long long i = 0; i < n_full; i++) {
+                    if (pi[i] == (int16_t)-1) {
+                        pi[i] = (int16_t)i;
+                    }
+                }
+                free(val_to_index);
+                free(alpha_old);
+                size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
+                uint8_t *cb = (uint8_t*)malloc(cb_len);
+                if (!cb) { free(pi); public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
+                memset(cb, 0, cb_len);
+                cbits_from_perm_ns(cb, pi, m, n_full);
+                for (size_t i = 0; i < cb_len; i++) fprintf(fout, "%02X", cb[i]);
+                free(cb); free(pi);
+            }
+            for (int i = 0; i < MCELIECE_N_BYTES; i++) fprintf(fout, "%02X", sk->s[i]);
+            fprintf(fout, "\n");
+            fprintf(fout, "ct = ");
+            for (int i = 0; i < MCELIECE_MT_BYTES; i++) fprintf(fout, "%02X", ct[i]);
+            fprintf(fout, "\n");
+            fprintf(fout, "ss = ");
+            for (int i = 0; i < MCELIECE_L_BYTES; i++) fprintf(fout, "%02X", ss[i]);
+            fprintf(fout, "\n\n");
+
+            public_key_free(pk); private_key_free(sk);
+        }
+    }
+    fclose(fin); fclose(fout);
+    printf("KAT: wrote %s\n", rsp_path);
+}
+
+// Helper: dump set bit positions of a bit-vector of length n
+static void dump_positions(FILE *f, const char *label, const uint8_t *vec, int n_bits) {
+    fprintf(f, "%s e: positions ", label);
+    int first = 1;
+    for (int i = 0; i < n_bits; i++) {
+        if (vector_get_bit(vec, i)) {
+            if (!first) fprintf(f, " ");
+            fprintf(f, "%d", i);
+            first = 0;
+        }
+    }
+    fprintf(f, "\n");
+}
+
+void run_kat_int(const char *req_path, const char *int_path) {
+    FILE *fin = fopen(req_path, "r");
+    if (!fin) { printf("KAT-INT: cannot open req %s\n", req_path); return; }
+    FILE *fout = fopen(int_path, "w");
+    if (!fout) { printf("KAT-INT: cannot open out %s\n", int_path); fclose(fin); return; }
+
+    char line[8192];
+    uint8_t seed48[48];
+    int count = -1;
+    while (fgets(line, sizeof(line), fin)) {
+        if (strncmp(line, "count =", 7) == 0) {
+            count = atoi(line + 7);
+        } else if (strncmp(line, "seed =", 6) == 0) {
+            const char *hex = strchr(line, '=');
+            if (!hex) continue; hex++;
+            while (*hex && isspace((unsigned char)*hex)) hex++;
+            // reuse hex2bin from this file
+            int got = hex2bin(hex, seed48, sizeof seed48);
+            if (got != 48) { printf("KAT-INT: bad seed at count %d\n", count); continue; }
+
+            // Re-init DRBG and run full keygen + generate e using the same sampler as encap, then decode
+            kat_drbg_init(seed48);
+
+            public_key_t *pk = public_key_create();
+            private_key_t *sk = private_key_create();
+            if (!pk || !sk) { printf("KAT-INT: alloc fail\n"); break; }
+            if (mceliece_keygen(pk, sk) != MCELIECE_SUCCESS) { printf("KAT-INT: keygen fail\n"); public_key_free(pk); private_key_free(sk); continue; }
+
+            // encrypt e using PQClean-style sampler
+            uint8_t e_enc[MCELIECE_N_BYTES]; memset(e_enc, 0, sizeof e_enc);
+            gen_e_pqclean(e_enc);
+            dump_positions(fout, "encrypt", e_enc, MCELIECE_N);
+
+            // ciphertext from e
+            uint8_t C[MCELIECE_MT_BYTES]; encode_vector(e_enc, &pk->T, C);
+
+            // decap to get e_dec
+            uint8_t e_dec[MCELIECE_N_BYTES]; int succ = 0;
+            if (decode_ciphertext(C, sk, e_dec, &succ) != MCELIECE_SUCCESS) { printf("KAT-INT: decode err\n"); public_key_free(pk); private_key_free(sk); continue; }
+            if (!succ) memcpy(e_dec, sk->s, MCELIECE_N_BYTES);
+            dump_positions(fout, "decrypt", e_dec, MCELIECE_N);
+
+            public_key_free(pk); private_key_free(sk);
+        }
+    }
+    fclose(fin); fclose(fout);
+    printf("KAT-INT: wrote %s\n", int_path);
+}
+
 // Deterministic test using fixed seed
 void test_seeded(void) {
     printf("\n=== Seeded Deterministic Test ===\n");
@@ -684,15 +952,14 @@ void test_decap_pipeline(void) {
     // BM+Chien on s_true
     polynomial_t *sigma_true = polynomial_create(MCELIECE_T);
     polynomial_t *sigma_v = polynomial_create(MCELIECE_T);
+    int *pos_true = NULL;
+    int *pos_v = NULL;
     if (!sigma_true || !sigma_v) {
         printf("Alloc failed (polys)\n");
         goto cleanup;
     }
     berlekamp_massey(s_true, sigma_true);
     berlekamp_massey(s_v, sigma_v);
-
-    int *pos_true = NULL;
-    int *pos_v = NULL;
     pos_true = malloc(sizeof(int) * MCELIECE_T);
     pos_v = malloc(sizeof(int) * MCELIECE_T);
     int cnt_true = 0, cnt_v = 0;
