@@ -1,6 +1,5 @@
 #include "mceliece_encode.h"
 #include "mceliece_matrix_ops.h"
-#include "rng.h"
 #include <time.h>
 #include <stdio.h>
 
@@ -88,27 +87,6 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
     free(positions);
     free(d_values);
     free(random_bytes);
-    return MCELIECE_SUCCESS;
-}
-
-// Deterministic variant for KAT: mirror reference rejection sampling from a 32-byte seed using AES-CTR-DRBG
-mceliece_error_t fixed_weight_vector_seeded(uint8_t *e, int n, int t, const uint8_t seed[32]) {
-    memset(e, 0, (n + 7) / 8);
-    // Initialize local DRBG with seed || zeros to 48 bytes
-    uint8_t seed48[48];
-    memcpy(seed48, seed, 32);
-    memset(seed48 + 32, 0, 16);
-    randombytes_init(seed48, NULL, 256);
-    int placed = 0;
-    while (placed < t) {
-        uint8_t rbytes[2];
-        randombytes(rbytes, 2);
-        uint16_t v = (uint16_t)rbytes[0] | ((uint16_t)rbytes[1] << 8);
-        if (v >= (uint16_t)n) continue;
-        if (vector_get_bit(e, v)) continue;
-        vector_set_bit(e, v, 1);
-        placed++;
-    }
     return MCELIECE_SUCCESS;
 }
 

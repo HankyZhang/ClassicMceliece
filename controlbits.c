@@ -148,25 +148,7 @@ void cbits_from_perm_ns(uint8_t *out, const int16 *pi, long long w, long long n)
     free(temp); free(pi_test);
 }
 
-int controlbits_from_alpha(const uint16_t *alpha, int n_alpha, int m, uint8_t *out, size_t out_len) {
-    if (m < 1 || m > 14) return -1;
-    long long n = 1LL << m;
-    if (n_alpha <= 0 || n_alpha > n) return -1;
-    size_t need = (size_t)((((2 * m - 1) * n / 2) + 7) / 8);
-    if (out_len < need) return -1;
-    /* Build permutation of size n that maps sorted(field) -> sorted(alpha as positions). */
-    int16 *pi = (int16*)malloc(sizeof(int16) * (size_t)n);
-    if (!pi) return -1;
-    for (long long i = 0; i < n; i++) pi[i] = (int16)i;
-    /* We need permutation on 2^m domain; we can set pi to send i to i for entries not used,
-       and for used positions, map i -> position of alpha[i] when enumerating field elements in bitrev order.
-       For KAT/controlbits equivalence, the standard permutation is the column permutation p of H,
-       which we already store in sk->p with length n. Use that instead at call site ideally.
-       Here we fallback to identity if full p is unavailable. */
-    cbits_from_perm_ns(out, pi, m, n);
-    free(pi);
-    return 0;
-}
+/* controlbits_from_alpha removed (unused). */
 
 int controlbits_verify(const uint8_t *cbits, long long w, long long n, const int16_t *pi) {
     // apply layers to identity and check equals pi
