@@ -107,74 +107,7 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         // Step 2: Calculate C = Encode(e, T)
         encode_vector(e, &pk->T, ciphertext);
         
-        // Debug prints disabled in KAT mode
-        int weight = vector_weight(e, MCELIECE_N_BYTES);
-        if (!kat_drbg_is_inited()) {
-            printf("Debug: Generated error vector with weight %d, first 16 positions: ", weight);
-            int count = 0;
-            for (int i = 0; i < MCELIECE_N && count < 16; i++) {
-                if (vector_get_bit(e, i)) {
-                    printf("%d ", i);
-                    count++;
-                }
-            }
-            printf("\n");
-            // TEST: Verify that C = H * e where H = [I_mt | T]
-            printf("Debug: Testing encapsulation correctness (C = H * e)...\n");
-        }
         
-        // Reconstruct the full H matrix [I_mt | T]
-        int mt = MCELIECE_M * MCELIECE_T;
-        int k = MCELIECE_K;
-        
-        // Method 1: Direct calculation using H = [I_mt | T]
-        // For the first mt bits: C[i] = e[i] + (T * e_k)[i] where e_k is the last k bits of e
-        uint8_t *reconstructed_C = malloc(MCELIECE_MT_BYTES);
-        if (reconstructed_C) {
-            memset(reconstructed_C, 0, MCELIECE_MT_BYTES);
-            
-            // Part 1: Copy first mt bits of e (due to identity matrix part)
-            for (int i = 0; i < mt; i++) {
-                int bit = vector_get_bit(e, i);
-                vector_set_bit(reconstructed_C, i, bit);
-            }
-            
-            // Part 2: Add T * e_k (where e_k is last k bits of e)
-            for (int row = 0; row < mt; row++) {
-                int sum = 0;
-                for (int col = 0; col < k; col++) {
-                    int e_bit = vector_get_bit(e, mt + col);
-                    int T_bit = matrix_get_bit(&pk->T, row, col);
-                    sum ^= (e_bit & T_bit);
-                }
-                if (sum) {
-                    int current_bit = vector_get_bit(reconstructed_C, row);
-                    vector_set_bit(reconstructed_C, row, current_bit ^ 1);
-                }
-            }
-            
-            // Compare with actual ciphertext
-            int matches = 1;
-            for (int i = 0; i < MCELIECE_MT_BYTES; i++) {
-                if (reconstructed_C[i] != ciphertext[i]) {
-                    matches = 0;
-                    break;
-                }
-            }
-            
-            if (!kat_drbg_is_inited()) {
-                printf("Debug: C = H*e verification: %s\n", matches ? "PASSED" : "FAILED");
-                if (!matches) {
-                    printf("Debug: First 8 bytes - Expected: ");
-                    for (int i = 0; i < 8; i++) printf("%02x ", ciphertext[i]);
-                    printf("\nDebug: First 8 bytes - Computed: ");
-                    for (int i = 0; i < 8; i++) printf("%02x ", reconstructed_C[i]);
-                    printf("\n");
-                }
-            }
-            
-            free(reconstructed_C);
-        }
         
         // Step 3: Calculate K = Hash(1, e, C)
         // Construct hash input: prefix 1 + e + C
@@ -226,7 +159,19 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     }
 
     int decode_success;
-    mceliece_error_t ret = decode_goppa(v, &sk->g, sk->alpha, e, &decode_success);
+    mceliece_error_t ret;
+    // Force Benes: require controlbits and correct length; do not fallback
+    long long m = MCELIECE_M; long long n_full = 1LL << m;
+    size_t expected_cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
+    if (!sk->controlbits || sk->controlbits_len != expected_cb_len) {
+        free(v); free(e);
+        return MCELIECE_ERROR_INVALID_PARAM;
+    }
+    gf_elem_t *L = (gf_elem_t*)malloc(sizeof(gf_elem_t) * MCELIECE_N);
+    if (!L) { free(v); free(e); return MCELIECE_ERROR_MEMORY; }
+    support_from_cbits(L, sk->controlbits, MCELIECE_M, MCELIECE_N);
+    ret = decode_goppa(v, &sk->g, L, e, &decode_success);
+    free(L);
     free(v);
     
     if (ret != MCELIECE_SUCCESS) {
@@ -645,58 +590,13 @@ void run_kat_file(const char *req_path, const char *rsp_path) {
                 gf_elem_t a = (i <= sk->g.degree) ? sk->g.coeffs[i] : 0;
                 fprintf(fout, "%02X%02X", (unsigned int)(a & 0xFF), (unsigned int)((a >> 8) & 0xFF));
             }
-            // compute control bits from permutation p (size 2^m). We expect sk->p has length MCELIECE_N
-            // Build pi of size 2^m: initialize to identity, then place the first N entries using sk->p mapping.
-            {
-                // Build full 2^m permutation pi from ORIGINAL field-ordering support (before column permutation)
-                long long m = MCELIECE_M;
-                long long n_full = 1LL << m; // 8192 for m=13
-                size_t pi_bytes = sizeof(int16_t) * (size_t)n_full;
-                int16_t *pi = (int16_t*)malloc(pi_bytes);
-                if (!pi) { public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
-                // map: field value -> original index in bitrev order
-                int16_t *val_to_index = (int16_t*)malloc(sizeof(int16_t) * (size_t)n_full);
-                if (!val_to_index) { free(pi); public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
-                for (long long i = 0; i < n_full; i++) {
-                    // inline bit-reverse of lower m bits
-                    uint16_t x = (uint16_t)i;
-                    uint16_t r = 0;
-                    for (int bi = 0; bi < MCELIECE_M; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
-                    uint16_t v = (uint16_t)(r & ((1U << MCELIECE_M) - 1U));
-                    val_to_index[v] = (int16_t)i;
-                }
-                // Recover original alpha ordering (before systematic column permutation):
-                // alpha_old[orig] = alpha_new[sys], where sys = sk->p[orig]
-                gf_elem_t *alpha_old = (gf_elem_t*)malloc(sizeof(gf_elem_t) * MCELIECE_N);
-                if (!alpha_old) { free(val_to_index); free(pi); public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
-                for (int orig = 0; orig < MCELIECE_N; orig++) {
-                    int sys = sk->p ? sk->p[orig] : orig;
-                    if (sys < 0 || sys >= MCELIECE_N) { alpha_old[orig] = 0; }
-                    else { alpha_old[orig] = sk->alpha[sys]; }
-                }
-                // initialize positions to -1
-                for (long long i = 0; i < n_full; i++) pi[i] = (int16_t)-1;
-                // place support elements (original field ordering) in positions 0..N-1
-                for (int j = 0; j < MCELIECE_N; j++) {
-                    uint16_t a = (uint16_t)alpha_old[j];
-                    int16_t src = val_to_index[a];
-                    if (src >= 0) pi[src] = (int16_t)j;
-                }
-                // assign remaining domain points to identity positions (match reference behavior)
-                for (long long i = 0; i < n_full; i++) {
-                    if (pi[i] == (int16_t)-1) {
-                        pi[i] = (int16_t)i;
-                    }
-                }
-                free(val_to_index);
-                free(alpha_old);
+            // write precomputed control bits from secret key
+            if (sk->controlbits && sk->controlbits_len > 0) {
+                for (size_t i = 0; i < sk->controlbits_len; i++) fprintf(fout, "%02X", sk->controlbits[i]);
+            } else {
+                long long m = MCELIECE_M; long long n_full = 1LL << m;
                 size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
-                uint8_t *cb = (uint8_t*)malloc(cb_len);
-                if (!cb) { free(pi); public_key_free(pk); private_key_free(sk); fclose(fin); fclose(fout); return; }
-                memset(cb, 0, cb_len);
-                cbits_from_perm_ns(cb, pi, m, n_full);
-                for (size_t i = 0; i < cb_len; i++) fprintf(fout, "%02X", cb[i]);
-                free(cb); free(pi);
+                for (size_t i = 0; i < cb_len; i++) fprintf(fout, "00");
             }
             for (int i = 0; i < MCELIECE_N_BYTES; i++) fprintf(fout, "%02X", sk->s[i]);
             fprintf(fout, "\n");

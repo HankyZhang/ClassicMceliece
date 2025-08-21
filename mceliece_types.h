@@ -68,9 +68,9 @@ typedef struct {
     polynomial_t g;
     gf_elem_t *alpha;
     uint8_t s[MCELIECE_N_BYTES];
-    int *p; // column permutation used in H -> [I|T]
-    void *U;      // row operation matrix (opaque to avoid header cycles)
-    void *U_inv;  // inverse of U (opaque)
+    // Optional: Benes control bits for support generation (size ((2*m-1)*2^m)/16 bytes)
+    uint8_t *controlbits;
+    size_t controlbits_len;
 } private_key_t;
 
 typedef struct {

@@ -2,7 +2,9 @@
 #include "mceliece_genpoly.h"
 #include "kat_drbg.h"
 #include "mceliece_kem.h"
+#include "controlbits.h"
 
+// reverses the order of the m least significant bits of a 16-bit unsigned integer x.
 static inline uint16_t bitrev_m_u16(uint16_t x, int m) {
     uint16_t r = 0;
     for (int j = 0; j < m; j++) {
@@ -73,7 +75,6 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
     // 验证一下总长度是否匹配
     if (prg_output_len_bytes != s_len_bytes + field_ordering_len_bytes + irreducible_poly_len_bytes + delta_prime_len_bytes) {
-        // 这在某些边界条件下可能不成立，但对于 McEliece 参数通常成立。
         // 一个更安全的方式是直接使用比特偏移量。但我们先用字节。
     }
 
@@ -127,20 +128,16 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             continue;
         }
 
-        // 6. Generate public key T and record permutation p and row ops U
-        if (sk->p) { free(sk->p); sk->p = NULL; }
-        sk->p = malloc(sizeof(int) * MCELIECE_N);
-        if (!sk->p) { memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
-        // Build H and reduce with recording to capture U in sk
+        // 6. Generate public key T: build H and reduce to systematic form (no recording)
         int mt = MCELIECE_M * MCELIECE_T;
         int n = MCELIECE_N;
         matrix_t *Htmp = matrix_create(mt, n);
-        if (!Htmp) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        if (!Htmp) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
         for (int i = 0; i < MCELIECE_T; i++) {
             for (int j = 0; j < MCELIECE_N; j++) {
                 gf_elem_t alpha_power = gf_pow(sk->alpha[j], i);
                 gf_elem_t g_alpha = polynomial_eval(&sk->g, sk->alpha[j]);
-                if (g_alpha == 0) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); free(sk->p); sk->p=NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
+                if (g_alpha == 0) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
                 gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
                 for (int bit = 0; bit < MCELIECE_M; bit++) {
                     int bit_value = (M_ij >> bit) & 1;
@@ -148,14 +145,8 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
                 }
             }
         }
-        if (sk->U) { matrix_free((matrix_t*)sk->U); sk->U = NULL; }
-        if (sk->U_inv) { matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL; }
-        sk->U = (void*)matrix_create(mt, mt);
-        if (!sk->U) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create U failed\n", attempt+1); matrix_free(Htmp); free(sk->p); sk->p = NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
-        if (reduce_to_systematic_form_record(Htmp, (matrix_t*)sk->U, sk->p) != 0) {
-            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form_record failed (singular)\n", attempt+1);
-            free(sk->p); sk->p = NULL;
-            matrix_free((matrix_t*)sk->U); sk->U = NULL;
+        if (reduce_to_systematic_form(Htmp) != 0) {
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form failed (singular)\n", attempt+1);
             matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
@@ -167,55 +158,57 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
                 matrix_set_bit(&pk->T, i, j, bit);
             }
         }
-        // Reorder first n support elements to match systematic columns: alpha'[sys] = alpha[orig]
-        {
-            int ncols = MCELIECE_N;
-            gf_elem_t *alpha_prime = malloc(sizeof(gf_elem_t) * ncols);
-            if (!alpha_prime) { matrix_free(Htmp); free(sk->p); sk->p=NULL; matrix_free((matrix_t*)sk->U); sk->U=NULL; memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
-            for (int j = 0; j < ncols; j++) alpha_prime[j] = 0;
-            for (int orig = 0; orig < ncols; orig++) {
-                int sys = sk->p[orig];
-                alpha_prime[sys] = sk->alpha[orig];
-            }
-            // write back first n reordered
-            for (int j = 0; j < ncols; j++) sk->alpha[j] = alpha_prime[j];
-            free(alpha_prime);
-        }
-        // Precompute U_inv
-        sk->U_inv = (void*)matrix_create(mt, mt);
-        if (!sk->U_inv || matrix_invert((matrix_t*)sk->U, (matrix_t*)sk->U_inv) != 0) {
-            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_invert(U) failed\n", attempt+1);
-            if (sk->U_inv) { matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL; }
-            free(sk->p); sk->p = NULL; matrix_free((matrix_t*)sk->U); sk->U = NULL; matrix_free(Htmp);
-            memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
-            continue;
-        }
+        // No need to reorder alpha without recording the column permutation; we'll derive support via controlbits
         matrix_free(Htmp);
 
-        // Self-verify only in non-KAT mode to avoid consuming DRBG differently
-        if (!kat_drbg_is_inited()) {
-            uint8_t ciphertext[MCELIECE_MT_BYTES];
-            uint8_t session_key1[MCELIECE_L_BYTES];
-            uint8_t session_key2[MCELIECE_L_BYTES];
-            mceliece_error_t vret = mceliece_encap(pk, ciphertext, session_key1);
-            if (vret != MCELIECE_SUCCESS) {
-                if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: self-encap failed (%d)\n", attempt+1, vret);
-                matrix_free((matrix_t*)sk->U); sk->U = NULL;
-                matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL;
-                free(sk->p); sk->p = NULL;
-                memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
-                continue;
+        // Compute Benes control bits for support permutation and store in secret key
+        {
+            long long m = MCELIECE_M;
+            long long n_full = 1LL << m; // 2^m
+            // Build permutation pi over 2^m that maps identity to the actual support ordering sk->alpha (bit-reversed domain)
+            size_t pi_bytes = sizeof(int16_t) * (size_t)n_full;
+            int16_t *pi = (int16_t*)malloc(pi_bytes);
+            int16_t *val_to_index = (int16_t*)malloc(sizeof(int16_t) * (size_t)n_full);
+            if (!pi || !val_to_index) { 
+                free(pi); 
+                free(val_to_index); 
+                free(E); 
+                return MCELIECE_ERROR_MEMORY; 
             }
-            vret = mceliece_decap(ciphertext, sk, session_key2);
-            if (vret != MCELIECE_SUCCESS || memcmp(session_key1, session_key2, MCELIECE_L_BYTES) != 0) {
-                if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: self-verify KEM mismatch\n", attempt+1);
-                matrix_free((matrix_t*)sk->U); sk->U = NULL;
-                matrix_free((matrix_t*)sk->U_inv); sk->U_inv = NULL;
-                free(sk->p); sk->p = NULL;
-                memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
-                continue;
+            for (long long i = 0; i < n_full; i++) {
+                // inline bit-reverse of lower m bits
+                uint16_t x = (uint16_t)i;
+                uint16_t r = 0;
+                for (int bi = 0; bi < MCELIECE_M; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
+                uint16_t v = (uint16_t)(r & ((1U << MCELIECE_M) - 1U));
+                val_to_index[v] = (int16_t)i;
             }
+            for (long long i = 0; i < n_full; i++) pi[i] = (int16_t)i;
+            // Place the first N support elements according to sk->alpha; unmapped points remain identity
+            for (int j = 0; j < MCELIECE_N; j++) {
+                uint16_t a = (uint16_t)sk->alpha[j];
+                int16_t src = val_to_index[a];
+                if (src >= 0) pi[src] = (int16_t)j;
+            }
+            free(val_to_index);
+            size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
+            if (sk->controlbits) { 
+                free(sk->controlbits); 
+                sk->controlbits = NULL; 
+            }
+            sk->controlbits = (uint8_t*)malloc(cb_len);
+            if (!sk->controlbits) { 
+                free(pi); 
+                free(E); 
+                return MCELIECE_ERROR_MEMORY; 
+            }
+            memset(sk->controlbits, 0, cb_len);
+            cbits_from_perm_ns(sk->controlbits, pi, m, n_full);
+            sk->controlbits_len = cb_len;
+            free(pi);
         }
+
+        // Self-verification removed to keep keygen pure and faster
 
         // --- All steps successful! ---
 
@@ -224,7 +217,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         memcpy(sk->s, s_bits_ptr, (n_bits + 7) / 8);
 
         // Other parts of private key (c, g, alpha) are already in sk structure
-        // keep sk->p for decapsulation transform
+        // sk->alpha remains the field-ordering support; controlbits provide permutation
 
         free(E);
         return MCELIECE_SUCCESS;
@@ -362,9 +355,9 @@ private_key_t* private_key_create(void) {
     if (!sk) return NULL;
 
     memset(sk, 0, sizeof(private_key_t));
-    sk->p = NULL;
-    sk->U = NULL;
-    sk->U_inv = NULL;
+    // U/U_inv and p removed
+    sk->controlbits = NULL;
+    sk->controlbits_len = 0;
 
     // 初始化Goppa多项式
     polynomial_t *g = polynomial_create(MCELIECE_T);
@@ -392,9 +385,8 @@ private_key_t* private_key_create(void) {
 // Private key deallocation
 void private_key_free(private_key_t *sk) {
     if (sk) {
-        if (sk->p) free(sk->p);
-        if (sk->U) matrix_free((matrix_t*)sk->U);
-        if (sk->U_inv) matrix_free((matrix_t*)sk->U_inv);
+        // p, U, U_inv removed
+        if (sk->controlbits) free(sk->controlbits);
         if (sk->g.coeffs) free(sk->g.coeffs);
         if (sk->alpha) free(sk->alpha);
         free(sk);

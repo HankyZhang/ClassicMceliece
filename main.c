@@ -2,6 +2,7 @@
 #include "mceliece_types.h"
 #include <stdio.h>
 #include <time.h>
+#include <stdlib.h>
 #include "mceliece_kem.h"
 #include "kat_drbg.h"
 #include "mceliece_gf.h"
@@ -207,7 +208,12 @@ void benchmark(void) {
     printf("=== Performance Benchmark ===\n");
     print_parameters();
 
-    const int num_trials = 5;
+    int num_trials = 5;
+    const char *env_trials = getenv("MCELIECE_TRIALS");
+    if (env_trials) {
+        int t = atoi(env_trials);
+        if (t > 0 && t <= 50) num_trials = t;
+    }
     double keygen_times[num_trials];
     double encap_times[num_trials];
     double decap_times[num_trials];

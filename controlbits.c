@@ -150,6 +150,44 @@ void cbits_from_perm_ns(uint8_t *out, const int16 *pi, long long w, long long n)
 
 /* controlbits_from_alpha removed (unused). */
 
+// Build pi by applying layers to identity
+void cbits_pi_from_cbits(const uint8_t *cbits, long long w, long long n, int16_t *pi_out) {
+    if (!cbits || !pi_out) return;
+    int16 *p = (int16*)malloc(sizeof(int16) * (size_t)n);
+    if (!p) return;
+    for (long long i = 0; i < n; i++) p[i] = (int16)i;
+    const unsigned char *ptr = cbits;
+    for (long long i = 0; i < w; i++) { layer_local(p, ptr, (int)i, (int)n); ptr += (size_t)(n >> 4); }
+    for (long long i = w - 2; i >= 0; i--) { layer_local(p, ptr, (int)i, (int)n); ptr += (size_t)(n >> 4); }
+    for (long long i = 0; i < n; i++) pi_out[i] = p[i];
+    free(p);
+}
+
+// Produce L[0..N-1] equal to support_gen in PQClean (bitrev of domain, then Benes, then extract low N indices)
+void support_from_cbits(gf_elem_t *L, const uint8_t *cbits, long long w, int N) {
+    if (!L || !cbits) return;
+    long long n = 1LL << w;
+    // Construct bit-reversed domain values
+    gf_elem_t *domain = (gf_elem_t*)malloc(sizeof(gf_elem_t) * (size_t)n);
+    if (!domain) return;
+    for (long long i = 0; i < n; i++) {
+        uint16_t x = (uint16_t)i;
+        uint16_t r = 0;
+        for (int bi = 0; bi < w; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
+        domain[i] = (gf_elem_t)(r & ((1U << w) - 1U));
+    }
+    // Apply layers to identity positions to get permutation indices
+    int16_t *pi = (int16_t*)malloc(sizeof(int16_t) * (size_t)n);
+    if (!pi) { free(domain); return; }
+    cbits_pi_from_cbits(cbits, w, n, pi);
+    // Extract first N images
+    for (int j = 0; j < N; j++) {
+        L[j] = domain[pi[j]];
+    }
+    free(pi);
+    free(domain);
+}
+
 int controlbits_verify(const uint8_t *cbits, long long w, long long n, const int16_t *pi) {
     // apply layers to identity and check equals pi
     int16 *p = (int16*)malloc(sizeof(int16) * (size_t)n);
