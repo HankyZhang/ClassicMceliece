@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../Downloads/mceliece-kat-20221023 2/KAT/kem/mceliece6688128"
+		},
+		{
+			"path": "../../Downloads/liboqs-main/src/kem/classic_mceliece/pqclean_mceliece6688128_clean"
+		}
+	],
+	"settings": {}
+}

@@ -209,6 +209,62 @@ CMakeFiles/ClassicMceliece.dir/mceliece_kem.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/ClassicMceliece.dir/mceliece_kem.c.s"
 	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/zhanghanqi/CLionProjects/ClassicMceliece/mceliece_kem.c -o CMakeFiles/ClassicMceliece.dir/mceliece_kem.c.s
 
+CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o: CMakeFiles/ClassicMceliece.dir/flags.make
+CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o: ../mceliece_genpoly.c
+CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o: CMakeFiles/ClassicMceliece.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o -MF CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o.d -o CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o -c /Users/zhanghanqi/CLionProjects/ClassicMceliece/mceliece_genpoly.c
+
+CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.i"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/zhanghanqi/CLionProjects/ClassicMceliece/mceliece_genpoly.c > CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.i
+
+CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.s"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/zhanghanqi/CLionProjects/ClassicMceliece/mceliece_genpoly.c -o CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.s
+
+CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o: CMakeFiles/ClassicMceliece.dir/flags.make
+CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o: ../kat_drbg.c
+CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o: CMakeFiles/ClassicMceliece.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o -MF CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o.d -o CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o -c /Users/zhanghanqi/CLionProjects/ClassicMceliece/kat_drbg.c
+
+CMakeFiles/ClassicMceliece.dir/kat_drbg.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/ClassicMceliece.dir/kat_drbg.c.i"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/zhanghanqi/CLionProjects/ClassicMceliece/kat_drbg.c > CMakeFiles/ClassicMceliece.dir/kat_drbg.c.i
+
+CMakeFiles/ClassicMceliece.dir/kat_drbg.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/ClassicMceliece.dir/kat_drbg.c.s"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/zhanghanqi/CLionProjects/ClassicMceliece/kat_drbg.c -o CMakeFiles/ClassicMceliece.dir/kat_drbg.c.s
+
+CMakeFiles/ClassicMceliece.dir/rng.c.o: CMakeFiles/ClassicMceliece.dir/flags.make
+CMakeFiles/ClassicMceliece.dir/rng.c.o: ../rng.c
+CMakeFiles/ClassicMceliece.dir/rng.c.o: CMakeFiles/ClassicMceliece.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/ClassicMceliece.dir/rng.c.o"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/ClassicMceliece.dir/rng.c.o -MF CMakeFiles/ClassicMceliece.dir/rng.c.o.d -o CMakeFiles/ClassicMceliece.dir/rng.c.o -c /Users/zhanghanqi/CLionProjects/ClassicMceliece/rng.c
+
+CMakeFiles/ClassicMceliece.dir/rng.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/ClassicMceliece.dir/rng.c.i"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/zhanghanqi/CLionProjects/ClassicMceliece/rng.c > CMakeFiles/ClassicMceliece.dir/rng.c.i
+
+CMakeFiles/ClassicMceliece.dir/rng.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/ClassicMceliece.dir/rng.c.s"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/zhanghanqi/CLionProjects/ClassicMceliece/rng.c -o CMakeFiles/ClassicMceliece.dir/rng.c.s
+
+CMakeFiles/ClassicMceliece.dir/controlbits.c.o: CMakeFiles/ClassicMceliece.dir/flags.make
+CMakeFiles/ClassicMceliece.dir/controlbits.c.o: ../controlbits.c
+CMakeFiles/ClassicMceliece.dir/controlbits.c.o: CMakeFiles/ClassicMceliece.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/ClassicMceliece.dir/controlbits.c.o"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/ClassicMceliece.dir/controlbits.c.o -MF CMakeFiles/ClassicMceliece.dir/controlbits.c.o.d -o CMakeFiles/ClassicMceliece.dir/controlbits.c.o -c /Users/zhanghanqi/CLionProjects/ClassicMceliece/controlbits.c
+
+CMakeFiles/ClassicMceliece.dir/controlbits.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/ClassicMceliece.dir/controlbits.c.i"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/zhanghanqi/CLionProjects/ClassicMceliece/controlbits.c > CMakeFiles/ClassicMceliece.dir/controlbits.c.i
+
+CMakeFiles/ClassicMceliece.dir/controlbits.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/ClassicMceliece.dir/controlbits.c.s"
+	/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/zhanghanqi/CLionProjects/ClassicMceliece/controlbits.c -o CMakeFiles/ClassicMceliece.dir/controlbits.c.s
+
 # Object files for target ClassicMceliece
 ClassicMceliece_OBJECTS = \
 "CMakeFiles/ClassicMceliece.dir/main.c.o" \
@@ -220,7 +276,11 @@ ClassicMceliece_OBJECTS = \
 "CMakeFiles/ClassicMceliece.dir/mceliece_keygen.c.o" \
 "CMakeFiles/ClassicMceliece.dir/mceliece_encode.c.o" \
 "CMakeFiles/ClassicMceliece.dir/mceliece_decode.c.o" \
-"CMakeFiles/ClassicMceliece.dir/mceliece_kem.c.o"
+"CMakeFiles/ClassicMceliece.dir/mceliece_kem.c.o" \
+"CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o" \
+"CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o" \
+"CMakeFiles/ClassicMceliece.dir/rng.c.o" \
+"CMakeFiles/ClassicMceliece.dir/controlbits.c.o"
 
 # External object files for target ClassicMceliece
 ClassicMceliece_EXTERNAL_OBJECTS =
@@ -235,9 +295,13 @@ ClassicMceliece: CMakeFiles/ClassicMceliece.dir/mceliece_keygen.c.o
 ClassicMceliece: CMakeFiles/ClassicMceliece.dir/mceliece_encode.c.o
 ClassicMceliece: CMakeFiles/ClassicMceliece.dir/mceliece_decode.c.o
 ClassicMceliece: CMakeFiles/ClassicMceliece.dir/mceliece_kem.c.o
+ClassicMceliece: CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o
+ClassicMceliece: CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o
+ClassicMceliece: CMakeFiles/ClassicMceliece.dir/rng.c.o
+ClassicMceliece: CMakeFiles/ClassicMceliece.dir/controlbits.c.o
 ClassicMceliece: CMakeFiles/ClassicMceliece.dir/build.make
 ClassicMceliece: CMakeFiles/ClassicMceliece.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Linking C executable ClassicMceliece"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/Users/zhanghanqi/CLionProjects/ClassicMceliece/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Linking C executable ClassicMceliece"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/ClassicMceliece.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

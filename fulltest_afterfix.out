@@ -1,0 +1,646 @@
+Classic McEliece Implementation
+================================
+
+=== Running Comprehensive Test Suite ===
+
+1. Basic McEliece Test:
+Testing Classic McEliece implementation...
+Generating key pair...
+[keygen] attempt 1/1...
+[keygen] building H: 1664 x 6688
+[keygen] H col 0/6688
+[keygen] H col 512/6688
+[keygen] H col 1024/6688
+[keygen] H col 1536/6688
+[keygen] H col 2048/6688
+[keygen] H col 2560/6688
+[keygen] H col 3072/6688
+[keygen] H col 3584/6688
+[keygen] H col 4096/6688
+[keygen] H col 4608/6688
+[keygen] H col 5120/6688
+[keygen] H col 5632/6688
+[keygen] H col 6144/6688
+[keygen] H col 6656/6688
+[keygen] reducing H to systematic form...
+[keygen] reduction complete. extracting T...
+[keygen] computing controlbits (Benes)...
+[keygen] controlbits ready: 12800 bytes
+Key generation successful!
+Testing encapsulation...
+[encap] generating error vector e...
+[fixed_weight] selected 16/128 positions
+[fixed_weight] selected 32/128 positions
+[fixed_weight] selected 48/128 positions
+[fixed_weight] selected 64/128 positions
+[fixed_weight] selected 80/128 positions
+[fixed_weight] selected 96/128 positions
+[fixed_weight] selected 112/128 positions
+[fixed_weight] selected 128/128 positions
+[fixed_weight] done.
+[encap] encoding ciphertext C = H*e...
+[encap] deriving session key...
+[encap] done.
+Encapsulation successful!
+Testing decapsulation...
+[decap] building v=(C,0,...) and decoding...
+[decode] syndrome j=7 computed
+[decode] syndrome j=15 computed
+[decode] syndrome j=23 computed
+[decode] syndrome j=31 computed
+[decode] syndrome j=39 computed
+[decode] syndrome j=47 computed
+[decode] syndrome j=55 computed
+[decode] syndrome j=63 computed
+[decode] syndrome j=71 computed
+[decode] syndrome j=79 computed
+[decode] syndrome j=87 computed
+[decode] syndrome j=95 computed
+[decode] syndrome j=103 computed
+[decode] syndrome j=111 computed
+[decode] syndrome j=119 computed
+[decode] syndrome j=127 computed
+[decode] syndrome j=135 computed
+[decode] syndrome j=143 computed
+[decode] syndrome j=151 computed
+[decode] syndrome j=159 computed
+[decode] syndrome j=167 computed
+[decode] syndrome j=175 computed
+[decode] syndrome j=183 computed
+[decode] syndrome j=191 computed
+[decode] syndrome j=199 computed
+[decode] syndrome j=207 computed
+[decode] syndrome j=215 computed
+[decode] syndrome j=223 computed
+[decode] syndrome j=231 computed
+[decode] syndrome j=239 computed
+[decode] syndrome j=247 computed
+[decode] syndrome j=255 computed
+[BM] processed N=7
+[BM] processed N=15
+[BM] processed N=23
+[BM] processed N=31
+[BM] processed N=39
+[BM] processed N=47
+[BM] processed N=55
+[BM] processed N=63
+[BM] processed N=71
+[BM] processed N=79
+[BM] processed N=87
+[BM] processed N=95
+[BM] processed N=103
+[BM] processed N=111
+[BM] processed N=119
+[BM] processed N=127
+[BM] processed N=135
+[BM] processed N=143
+[BM] processed N=151
+[BM] processed N=159
+[BM] processed N=167
+[BM] processed N=175
+[BM] processed N=183
+[BM] processed N=191
+[BM] processed N=199
+[BM] processed N=207
+[BM] processed N=215
+[BM] processed N=223
+[BM] processed N=231
+[BM] processed N=239
+[BM] processed N=247
+[BM] processed N=255
+[Chien] root at j=1687 (errors=1)
+[Chien] root at j=5478 (errors=2)
+[Chien] total errors=2
+[decap] decode_success=0
+Debug: Decoding failed, using backup vector s
+Decapsulation failed! Session keys don't match.
+Debug: First 16 bytes of session key 1: 7b10adece5d60eafa0896364cc920fda
+Debug: First 16 bytes of session key 2: ca9f2c447908957b69bf4b47125141ab
+Test completed.
+
+2. Multiple Round Test (5 iterations):
+  Round 1: [keygen] attempt 1/1...
+[keygen] building H: 1664 x 6688
+[keygen] H col 0/6688
+[keygen] H col 512/6688
+[keygen] H col 1024/6688
+[keygen] H col 1536/6688
+[keygen] H col 2048/6688
+[keygen] H col 2560/6688
+[keygen] H col 3072/6688
+[keygen] H col 3584/6688
+[keygen] H col 4096/6688
+[keygen] H col 4608/6688
+[keygen] H col 5120/6688
+[keygen] H col 5632/6688
+[keygen] H col 6144/6688
+[keygen] H col 6656/6688
+[keygen] reducing H to systematic form...
+[keygen] reduction complete. extracting T...
+[keygen] computing controlbits (Benes)...
+[keygen] controlbits ready: 12800 bytes
+[encap] generating error vector e...
+[fixed_weight] selected 16/128 positions
+[fixed_weight] selected 32/128 positions
+[fixed_weight] selected 48/128 positions
+[fixed_weight] selected 64/128 positions
+[fixed_weight] selected 80/128 positions
+[fixed_weight] selected 96/128 positions
+[fixed_weight] selected 112/128 positions
+[fixed_weight] selected 128/128 positions
+[fixed_weight] done.
+[encap] encoding ciphertext C = H*e...
+[encap] deriving session key...
+[encap] done.
+[decap] building v=(C,0,...) and decoding...
+[decode] syndrome j=7 computed
+[decode] syndrome j=15 computed
+[decode] syndrome j=23 computed
+[decode] syndrome j=31 computed
+[decode] syndrome j=39 computed
+[decode] syndrome j=47 computed
+[decode] syndrome j=55 computed
+[decode] syndrome j=63 computed
+[decode] syndrome j=71 computed
+[decode] syndrome j=79 computed
+[decode] syndrome j=87 computed
+[decode] syndrome j=95 computed
+[decode] syndrome j=103 computed
+[decode] syndrome j=111 computed
+[decode] syndrome j=119 computed
+[decode] syndrome j=127 computed
+[decode] syndrome j=135 computed
+[decode] syndrome j=143 computed
+[decode] syndrome j=151 computed
+[decode] syndrome j=159 computed
+[decode] syndrome j=167 computed
+[decode] syndrome j=175 computed
+[decode] syndrome j=183 computed
+[decode] syndrome j=191 computed
+[decode] syndrome j=199 computed
+[decode] syndrome j=207 computed
+[decode] syndrome j=215 computed
+[decode] syndrome j=223 computed
+[decode] syndrome j=231 computed
+[decode] syndrome j=239 computed
+[decode] syndrome j=247 computed
+[decode] syndrome j=255 computed
+[BM] processed N=7
+[BM] processed N=15
+[BM] processed N=23
+[BM] processed N=31
+[BM] processed N=39
+[BM] processed N=47
+[BM] processed N=55
+[BM] processed N=63
+[BM] processed N=71
+[BM] processed N=79
+[BM] processed N=87
+[BM] processed N=95
+[BM] processed N=103
+[BM] processed N=111
+[BM] processed N=119
+[BM] processed N=127
+[BM] processed N=135
+[BM] processed N=143
+[BM] processed N=151
+[BM] processed N=159
+[BM] processed N=167
+[BM] processed N=175
+[BM] processed N=183
+[BM] processed N=191
+[BM] processed N=199
+[BM] processed N=207
+[BM] processed N=215
+[BM] processed N=223
+[BM] processed N=231
+[BM] processed N=239
+[BM] processed N=247
+[BM] processed N=255
+[Chien] total errors=0
+[decap] decode_success=0
+Debug: Decoding failed, using backup vector s
+FAILED (key mismatch)
+  Round 2: [keygen] attempt 1/1...
+[keygen] building H: 1664 x 6688
+[keygen] H col 0/6688
+[keygen] H col 512/6688
+[keygen] H col 1024/6688
+[keygen] H col 1536/6688
+[keygen] H col 2048/6688
+[keygen] H col 2560/6688
+[keygen] H col 3072/6688
+[keygen] H col 3584/6688
+[keygen] H col 4096/6688
+[keygen] H col 4608/6688
+[keygen] H col 5120/6688
+[keygen] H col 5632/6688
+[keygen] H col 6144/6688
+[keygen] H col 6656/6688
+[keygen] reducing H to systematic form...
+[keygen] reduction complete. extracting T...
+[keygen] computing controlbits (Benes)...
+[keygen] controlbits ready: 12800 bytes
+[encap] generating error vector e...
+[fixed_weight] selected 16/128 positions
+[fixed_weight] selected 32/128 positions
+[fixed_weight] selected 48/128 positions
+[fixed_weight] selected 64/128 positions
+[fixed_weight] selected 80/128 positions
+[fixed_weight] selected 96/128 positions
+[fixed_weight] selected 112/128 positions
+[fixed_weight] selected 128/128 positions
+[fixed_weight] done.
+[encap] encoding ciphertext C = H*e...
+[encap] deriving session key...
+[encap] done.
+[decap] building v=(C,0,...) and decoding...
+[decode] syndrome j=7 computed
+[decode] syndrome j=15 computed
+[decode] syndrome j=23 computed
+[decode] syndrome j=31 computed
+[decode] syndrome j=39 computed
+[decode] syndrome j=47 computed
+[decode] syndrome j=55 computed
+[decode] syndrome j=63 computed
+[decode] syndrome j=71 computed
+[decode] syndrome j=79 computed
+[decode] syndrome j=87 computed
+[decode] syndrome j=95 computed
+[decode] syndrome j=103 computed
+[decode] syndrome j=111 computed
+[decode] syndrome j=119 computed
+[decode] syndrome j=127 computed
+[decode] syndrome j=135 computed
+[decode] syndrome j=143 computed
+[decode] syndrome j=151 computed
+[decode] syndrome j=159 computed
+[decode] syndrome j=167 computed
+[decode] syndrome j=175 computed
+[decode] syndrome j=183 computed
+[decode] syndrome j=191 computed
+[decode] syndrome j=199 computed
+[decode] syndrome j=207 computed
+[decode] syndrome j=215 computed
+[decode] syndrome j=223 computed
+[decode] syndrome j=231 computed
+[decode] syndrome j=239 computed
+[decode] syndrome j=247 computed
+[decode] syndrome j=255 computed
+[BM] processed N=7
+[BM] processed N=15
+[BM] processed N=23
+[BM] processed N=31
+[BM] processed N=39
+[BM] processed N=47
+[BM] processed N=55
+[BM] processed N=63
+[BM] processed N=71
+[BM] processed N=79
+[BM] processed N=87
+[BM] processed N=95
+[BM] processed N=103
+[BM] processed N=111
+[BM] processed N=119
+[BM] processed N=127
+[BM] processed N=135
+[BM] processed N=143
+[BM] processed N=151
+[BM] processed N=159
+[BM] processed N=167
+[BM] processed N=175
+[BM] processed N=183
+[BM] processed N=191
+[BM] processed N=199
+[BM] processed N=207
+[BM] processed N=215
+[BM] processed N=223
+[BM] processed N=231
+[BM] processed N=239
+[BM] processed N=247
+[BM] processed N=255
+[Chien] total errors=0
+[decap] decode_success=0
+Debug: Decoding failed, using backup vector s
+FAILED (key mismatch)
+  Round 3: [keygen] attempt 1/1...
+[keygen] building H: 1664 x 6688
+[keygen] H col 0/6688
+[keygen] H col 512/6688
+[keygen] H col 1024/6688
+[keygen] H col 1536/6688
+[keygen] H col 2048/6688
+[keygen] H col 2560/6688
+[keygen] H col 3072/6688
+[keygen] H col 3584/6688
+[keygen] H col 4096/6688
+[keygen] H col 4608/6688
+[keygen] H col 5120/6688
+[keygen] H col 5632/6688
+[keygen] H col 6144/6688
+[keygen] H col 6656/6688
+[keygen] reducing H to systematic form...
+[keygen] reduction complete. extracting T...
+[keygen] computing controlbits (Benes)...
+[keygen] controlbits ready: 12800 bytes
+[encap] generating error vector e...
+[fixed_weight] selected 16/128 positions
+[fixed_weight] selected 32/128 positions
+[fixed_weight] selected 48/128 positions
+[fixed_weight] selected 64/128 positions
+[fixed_weight] selected 80/128 positions
+[fixed_weight] selected 96/128 positions
+[fixed_weight] selected 112/128 positions
+[fixed_weight] selected 128/128 positions
+[fixed_weight] done.
+[encap] encoding ciphertext C = H*e...
+[encap] deriving session key...
+[encap] done.
+[decap] building v=(C,0,...) and decoding...
+[decode] syndrome j=7 computed
+[decode] syndrome j=15 computed
+[decode] syndrome j=23 computed
+[decode] syndrome j=31 computed
+[decode] syndrome j=39 computed
+[decode] syndrome j=47 computed
+[decode] syndrome j=55 computed
+[decode] syndrome j=63 computed
+[decode] syndrome j=71 computed
+[decode] syndrome j=79 computed
+[decode] syndrome j=87 computed
+[decode] syndrome j=95 computed
+[decode] syndrome j=103 computed
+[decode] syndrome j=111 computed
+[decode] syndrome j=119 computed
+[decode] syndrome j=127 computed
+[decode] syndrome j=135 computed
+[decode] syndrome j=143 computed
+[decode] syndrome j=151 computed
+[decode] syndrome j=159 computed
+[decode] syndrome j=167 computed
+[decode] syndrome j=175 computed
+[decode] syndrome j=183 computed
+[decode] syndrome j=191 computed
+[decode] syndrome j=199 computed
+[decode] syndrome j=207 computed
+[decode] syndrome j=215 computed
+[decode] syndrome j=223 computed
+[decode] syndrome j=231 computed
+[decode] syndrome j=239 computed
+[decode] syndrome j=247 computed
+[decode] syndrome j=255 computed
+[BM] processed N=7
+[BM] processed N=15
+[BM] processed N=23
+[BM] processed N=31
+[BM] processed N=39
+[BM] processed N=47
+[BM] processed N=55
+[BM] processed N=63
+[BM] processed N=71
+[BM] processed N=79
+[BM] processed N=87
+[BM] processed N=95
+[BM] processed N=103
+[BM] processed N=111
+[BM] processed N=119
+[BM] processed N=127
+[BM] processed N=135
+[BM] processed N=143
+[BM] processed N=151
+[BM] processed N=159
+[BM] processed N=167
+[BM] processed N=175
+[BM] processed N=183
+[BM] processed N=191
+[BM] processed N=199
+[BM] processed N=207
+[BM] processed N=215
+[BM] processed N=223
+[BM] processed N=231
+[BM] processed N=239
+[BM] processed N=247
+[BM] processed N=255
+[Chien] total errors=0
+[decap] decode_success=0
+Debug: Decoding failed, using backup vector s
+FAILED (key mismatch)
+  Round 4: [keygen] attempt 1/1...
+[keygen] building H: 1664 x 6688
+[keygen] H col 0/6688
+[keygen] H col 512/6688
+[keygen] H col 1024/6688
+[keygen] H col 1536/6688
+[keygen] H col 2048/6688
+[keygen] H col 2560/6688
+[keygen] H col 3072/6688
+[keygen] H col 3584/6688
+[keygen] H col 4096/6688
+[keygen] H col 4608/6688
+[keygen] H col 5120/6688
+[keygen] H col 5632/6688
+[keygen] H col 6144/6688
+[keygen] H col 6656/6688
+[keygen] reducing H to systematic form...
+[keygen] reduction complete. extracting T...
+[keygen] computing controlbits (Benes)...
+[keygen] controlbits ready: 12800 bytes
+[encap] generating error vector e...
+[fixed_weight] selected 16/128 positions
+[fixed_weight] selected 32/128 positions
+[fixed_weight] selected 48/128 positions
+[fixed_weight] selected 64/128 positions
+[fixed_weight] selected 80/128 positions
+[fixed_weight] selected 96/128 positions
+[fixed_weight] selected 112/128 positions
+[fixed_weight] selected 128/128 positions
+[fixed_weight] done.
+[encap] encoding ciphertext C = H*e...
+[encap] deriving session key...
+[encap] done.
+[decap] building v=(C,0,...) and decoding...
+[decode] syndrome j=7 computed
+[decode] syndrome j=15 computed
+[decode] syndrome j=23 computed
+[decode] syndrome j=31 computed
+[decode] syndrome j=39 computed
+[decode] syndrome j=47 computed
+[decode] syndrome j=55 computed
+[decode] syndrome j=63 computed
+[decode] syndrome j=71 computed
+[decode] syndrome j=79 computed
+[decode] syndrome j=87 computed
+[decode] syndrome j=95 computed
+[decode] syndrome j=103 computed
+[decode] syndrome j=111 computed
+[decode] syndrome j=119 computed
+[decode] syndrome j=127 computed
+[decode] syndrome j=135 computed
+[decode] syndrome j=143 computed
+[decode] syndrome j=151 computed
+[decode] syndrome j=159 computed
+[decode] syndrome j=167 computed
+[decode] syndrome j=175 computed
+[decode] syndrome j=183 computed
+[decode] syndrome j=191 computed
+[decode] syndrome j=199 computed
+[decode] syndrome j=207 computed
+[decode] syndrome j=215 computed
+[decode] syndrome j=223 computed
+[decode] syndrome j=231 computed
+[decode] syndrome j=239 computed
+[decode] syndrome j=247 computed
+[decode] syndrome j=255 computed
+[BM] processed N=7
+[BM] processed N=15
+[BM] processed N=23
+[BM] processed N=31
+[BM] processed N=39
+[BM] processed N=47
+[BM] processed N=55
+[BM] processed N=63
+[BM] processed N=71
+[BM] processed N=79
+[BM] processed N=87
+[BM] processed N=95
+[BM] processed N=103
+[BM] processed N=111
+[BM] processed N=119
+[BM] processed N=127
+[BM] processed N=135
+[BM] processed N=143
+[BM] processed N=151
+[BM] processed N=159
+[BM] processed N=167
+[BM] processed N=175
+[BM] processed N=183
+[BM] processed N=191
+[BM] processed N=199
+[BM] processed N=207
+[BM] processed N=215
+[BM] processed N=223
+[BM] processed N=231
+[BM] processed N=239
+[BM] processed N=247
+[BM] processed N=255
+[Chien] root at j=1974 (errors=1)
+[Chien] root at j=4992 (errors=2)
+[Chien] total errors=2
+[decap] decode_success=0
+Debug: Decoding failed, using backup vector s
+FAILED (key mismatch)
+  Round 5: [keygen] attempt 1/1...
+[keygen] building H: 1664 x 6688
+[keygen] H col 0/6688
+[keygen] H col 512/6688
+[keygen] H col 1024/6688
+[keygen] H col 1536/6688
+[keygen] H col 2048/6688
+[keygen] H col 2560/6688
+[keygen] H col 3072/6688
+[keygen] H col 3584/6688
+[keygen] H col 4096/6688
+[keygen] H col 4608/6688
+[keygen] H col 5120/6688
+[keygen] H col 5632/6688
+[keygen] H col 6144/6688
+[keygen] H col 6656/6688
+[keygen] reducing H to systematic form...
+[keygen] reduction complete. extracting T...
+[keygen] computing controlbits (Benes)...
+[keygen] controlbits ready: 12800 bytes
+[encap] generating error vector e...
+[fixed_weight] selected 16/128 positions
+[fixed_weight] selected 32/128 positions
+[fixed_weight] selected 48/128 positions
+[fixed_weight] selected 64/128 positions
+[fixed_weight] selected 80/128 positions
+[fixed_weight] selected 96/128 positions
+[fixed_weight] selected 112/128 positions
+[fixed_weight] selected 128/128 positions
+[fixed_weight] done.
+[encap] encoding ciphertext C = H*e...
+[encap] deriving session key...
+[encap] done.
+[decap] building v=(C,0,...) and decoding...
+[decode] syndrome j=7 computed
+[decode] syndrome j=15 computed
+[decode] syndrome j=23 computed
+[decode] syndrome j=31 computed
+[decode] syndrome j=39 computed
+[decode] syndrome j=47 computed
+[decode] syndrome j=55 computed
+[decode] syndrome j=63 computed
+[decode] syndrome j=71 computed
+[decode] syndrome j=79 computed
+[decode] syndrome j=87 computed
+[decode] syndrome j=95 computed
+[decode] syndrome j=103 computed
+[decode] syndrome j=111 computed
+[decode] syndrome j=119 computed
+[decode] syndrome j=127 computed
+[decode] syndrome j=135 computed
+[decode] syndrome j=143 computed
+[decode] syndrome j=151 computed
+[decode] syndrome j=159 computed
+[decode] syndrome j=167 computed
+[decode] syndrome j=175 computed
+[decode] syndrome j=183 computed
+[decode] syndrome j=191 computed
+[decode] syndrome j=199 computed
+[decode] syndrome j=207 computed
+[decode] syndrome j=215 computed
+[decode] syndrome j=223 computed
+[decode] syndrome j=231 computed
+[decode] syndrome j=239 computed
+[decode] syndrome j=247 computed
+[decode] syndrome j=255 computed
+[BM] processed N=7
+[BM] processed N=15
+[BM] processed N=23
+[BM] processed N=31
+[BM] processed N=39
+[BM] processed N=47
+[BM] processed N=55
+[BM] processed N=63
+[BM] processed N=71
+[BM] processed N=79
+[BM] processed N=87
+[BM] processed N=95
+[BM] processed N=103
+[BM] processed N=111
+[BM] processed N=119
+[BM] processed N=127
+[BM] processed N=135
+[BM] processed N=143
+[BM] processed N=151
+[BM] processed N=159
+[BM] processed N=167
+[BM] processed N=175
+[BM] processed N=183
+[BM] processed N=191
+[BM] processed N=199
+[BM] processed N=207
+[BM] processed N=215
+[BM] processed N=223
+[BM] processed N=231
+[BM] processed N=239
+[BM] processed N=247
+[BM] processed N=255
+[Chien] total errors=0
+[decap] decode_success=0
+Debug: Decoding failed, using backup vector s
+FAILED (key mismatch)
+  Success rate: 0/5 (0.0%)
+
+3. Parameter Verification:
+  m = 13 (field extension degree)
+  n = 6688 (code length)
+  t = 128 (error correction capability)
+  k = 5024 (code dimension)
+  q = 8192 (field size)
+  Expected: k = n - m*t = 6688 - 13*128 = 5024
+  ✓ Parameter consistency check PASSED
+
+=== Test Suite Complete ===
+❌ Multiple test failures (0/5). System needs debugging.

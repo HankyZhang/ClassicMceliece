@@ -1,13 +1,17 @@
 
 #include "mceliece_decode.h"
+#include "controlbits.h"
 
 
 // Calculate syndrome according to Classic McEliece specification
 void compute_syndrome(const uint8_t *received, const polynomial_t *g,
                       const gf_elem_t *alpha, gf_elem_t *syndrome) {
     if (!received || !g || !alpha || !syndrome) return;
+    const char *env_debug = getenv("MCELIECE_DEBUG");
+    int dbg_enabled = env_debug && env_debug[0] == '1';
 
-    // According to section 3.3.1: s_j = Σ_{i∈I} α_i^j / g(α_i)^2
+    // Syndrome definition for H = [I | T] with H_{i,j} = α_j^i / g(α_j):
+    // s_j = Σ_{i∈I} α_i^j / g(α_i)
     // where I is the set of error positions
 
     for (int j = 0; j < 2 * MCELIECE_T; j++) {
@@ -27,6 +31,7 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
             }
 
         }
+        if (dbg_enabled && ((j & 7) == 7)) { printf("[decode] syndrome j=%d computed\n", j); fflush(stdout); }
     }
 }
 
@@ -39,6 +44,8 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
     if (!syndrome || !sigma) {
         return MCELIECE_ERROR_INVALID_PARAM;
     }
+    const char *env_debug = getenv("MCELIECE_DEBUG");
+    int dbg_enabled = env_debug && env_debug[0] == '1';
 
     // Initialize polynomials
     polynomial_t *C = polynomial_create(MCELIECE_T);  // Current connection polynomial
@@ -104,6 +111,7 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
                 m++;
             }
         }
+        if (dbg_enabled && ((N & 7) == 7)) { printf("[BM] processed N=%d\n", N); fflush(stdout); }
     }
 
     // Output error locator polynomial
@@ -124,6 +132,8 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
     if (!sigma || !alpha || !error_positions || !num_errors) {
         return MCELIECE_ERROR_INVALID_PARAM;
     }
+    const char *env_debug = getenv("MCELIECE_DEBUG");
+    int dbg_enabled = env_debug && env_debug[0] == '1';
 
     *num_errors = 0;
 
@@ -138,11 +148,13 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
             // Found a root, corresponding to error position
             error_positions[*num_errors] = j;
             (*num_errors)++;
+            if (dbg_enabled) { printf("[Chien] root at j=%d (errors=%d)\n", j, *num_errors); fflush(stdout); }
 
             if (*num_errors >= MCELIECE_T) break;  // At most t errors
         }
     }
 
+    if (dbg_enabled) { printf("[Chien] total errors=%d\n", *num_errors); fflush(stdout); }
     return MCELIECE_SUCCESS;
 }
 
@@ -277,32 +289,44 @@ mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_
     // The "received" vector for syndrome computation should be the actual error pattern
     // we're trying to recover, but since we don't know it yet, we use the syndrome directly.
 
-    // Convert ciphertext bits to GF elements for syndrome computation
-    gf_elem_t syndrome[2 * MCELIECE_T];
-    memset(syndrome, 0, sizeof(syndrome));
+    // Proper approach: use ciphertext bits as the syndrome s[0..mt-1] directly
+    // and run the Goppa decoder working from syndrome. Many decoders expect
+    // the ability to recompute a consistent syndrome; here we adapt by
+    // constructing a temporary vector whose first mt bits match C.
 
-    // In the Classic McEliece spec, we need to compute the syndrome from the received word
-    // But since C = H*e and we're looking for e, we can use C directly as syndrome information
-    // However, this needs to be converted to the proper Goppa syndrome format
-
-    // For now, let's use a different approach: assume the received word is v = (C, 0, ..., 0)
-    // This represents what we would get if we received the first mt bits as C and the rest as 0
+    int mt = MCELIECE_M * MCELIECE_T;
     uint8_t *v = malloc(MCELIECE_N_BYTES);
     if (!v) return MCELIECE_ERROR_MEMORY;
-
     memset(v, 0, MCELIECE_N_BYTES);
-
-    // Copy ciphertext to first mt bits of v
-    int mt = MCELIECE_M * MCELIECE_T;
     for (int i = 0; i < mt; i++) {
         int bit_value = vector_get_bit(ciphertext, i);
         vector_set_bit(v, i, bit_value);
     }
-
-    // Step 2: Use Goppa decoding algorithm
-    mceliece_error_t ret = decode_goppa(v, &sk->g, sk->alpha, error_vector, success);
+    // Align to support order via Benes permutation from controlbits
+    uint8_t *v_perm = NULL;
+    long long w = MCELIECE_M;
+    long long n_full = 1LL << w;
+    size_t expected_cb_len = (size_t)((((2 * w - 1) * n_full / 2) + 7) / 8);
+    if (sk->controlbits && sk->controlbits_len == expected_cb_len) {
+        int16_t *pi = (int16_t*)malloc(sizeof(int16_t) * (size_t)n_full);
+        if (pi) {
+            cbits_pi_from_cbits(sk->controlbits, w, n_full, pi);
+            v_perm = (uint8_t*)calloc(MCELIECE_N_BYTES, 1);
+            if (v_perm) {
+                for (int j = 0; j < MCELIECE_N; j++) {
+                    int dst = (int)pi[j];
+                    if (dst >= 0 && dst < MCELIECE_N) {
+                        int bit_value = vector_get_bit(v, j);
+                        vector_set_bit(v_perm, dst, bit_value);
+                    }
+                }
+            }
+            free(pi);
+        }
+    }
+    mceliece_error_t ret = decode_goppa(v_perm ? v_perm : v, &sk->g, sk->alpha, error_vector, success);
+    free(v_perm);
     free(v);
-
     return ret;
 }
 

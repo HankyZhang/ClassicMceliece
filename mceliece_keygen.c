@@ -85,11 +85,19 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
     // 复制初始种子到私钥
     memcpy(sk->delta, delta, delta_prime_len_bytes);
 
-    int max_attempts = 400; // allow retries in both modes; in KAT, DRBG provides fresh bytes per attempt
+    int max_attempts = 50; // allow retries in both modes; in KAT, DRBG provides fresh bytes per attempt
+    const char *env_max = getenv("MCELIECE_MAX_ATTEMPTS");
+    if (env_max) {
+        int tmp = atoi(env_max);
+        if (tmp > 0 && tmp <= 400) max_attempts = tmp;
+    }
     for (int attempt = 0; attempt < max_attempts; attempt++) {
+        if (!kat_drbg_is_inited()) { printf("[keygen] attempt %d/%d...\n", attempt+1, max_attempts); fflush(stdout); }
+        const char *env_debug = getenv("MCELIECE_DEBUG");
+        int dbg_enabled = (!kat_drbg_is_inited()) && env_debug && env_debug[0] == '1';
         // 1. Generate long random string E using internal PRG from delta.
         //    In KAT mode we must NOT consume the global DRBG here to match PQClean.
-        mceliece_prg(sk->delta, E, prg_output_len_bytes);
+            mceliece_prg(sk->delta, E, prg_output_len_bytes);
 
         // 2. Extract next retry seed delta' from the end of E
         uint8_t delta_prime[MCELIECE_L_BYTES];
@@ -133,24 +141,31 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         int n = MCELIECE_N;
         matrix_t *Htmp = matrix_create(mt, n);
         if (!Htmp) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
+        if (dbg_enabled) { printf("[keygen] building H: %d x %d\n", mt, n); fflush(stdout); }
+        // Optimize H build: for each column j, compute g(alpha[j]) once and iteratively build alpha[j]^i
+        for (int j = 0; j < MCELIECE_N; j++) {
+            gf_elem_t alpha_j = sk->alpha[j];
+            gf_elem_t g_alpha = polynomial_eval(&sk->g, alpha_j);
+            if (g_alpha == 0) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
+            gf_elem_t alpha_power = 1; // alpha_j^0
         for (int i = 0; i < MCELIECE_T; i++) {
-            for (int j = 0; j < MCELIECE_N; j++) {
-                gf_elem_t alpha_power = gf_pow(sk->alpha[j], i);
-                gf_elem_t g_alpha = polynomial_eval(&sk->g, sk->alpha[j]);
-                if (g_alpha == 0) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
                 gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
                 for (int bit = 0; bit < MCELIECE_M; bit++) {
                     int bit_value = (M_ij >> bit) & 1;
                     matrix_set_bit(Htmp, i * MCELIECE_M + bit, j, bit_value);
                 }
+                alpha_power = gf_mul(alpha_power, alpha_j);
             }
+            if (dbg_enabled && (j % 512 == 0)) { printf("[keygen] H col %d/%d\n", j, MCELIECE_N); fflush(stdout); }
         }
+        if (dbg_enabled) { printf("[keygen] reducing H to systematic form...\n"); fflush(stdout); }
         if (reduce_to_systematic_form(Htmp) != 0) {
             if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form failed (singular)\n", attempt+1);
             matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
+        if (dbg_enabled) { printf("[keygen] reduction complete. extracting T...\n"); fflush(stdout); }
         // Extract T from reduced Htmp
         for (int i = 0; i < mt; i++) {
             for (int j = 0; j < (MCELIECE_N - mt); j++) {
@@ -163,6 +178,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
         // Compute Benes control bits for support permutation and store in secret key
         {
+            if (dbg_enabled) { printf("[keygen] computing controlbits (Benes)...\n"); fflush(stdout); }
             long long m = MCELIECE_M;
             long long n_full = 1LL << m; // 2^m
             // Build permutation pi over 2^m that maps identity to the actual support ordering sk->alpha (bit-reversed domain)
@@ -183,12 +199,12 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
                 uint16_t v = (uint16_t)(r & ((1U << MCELIECE_M) - 1U));
                 val_to_index[v] = (int16_t)i;
             }
+            // Build permutation so that applying Benes to identity yields p[j] = src_index(a_j)
             for (long long i = 0; i < n_full; i++) pi[i] = (int16_t)i;
-            // Place the first N support elements according to sk->alpha; unmapped points remain identity
-            for (int j = 0; j < MCELIECE_N; j++) {
+            for (int j = 0; j < MCELIECE_Q; j++) {
                 uint16_t a = (uint16_t)sk->alpha[j];
                 int16_t src = val_to_index[a];
-                if (src >= 0) pi[src] = (int16_t)j;
+                pi[j] = src;  // so L[j] = domain[p[j]] == domain[src] == a
             }
             free(val_to_index);
             size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
@@ -206,6 +222,22 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             cbits_from_perm_ns(sk->controlbits, pi, m, n_full);
             sk->controlbits_len = cb_len;
             free(pi);
+            if (dbg_enabled) { printf("[keygen] controlbits ready: %zu bytes\n", (size_t)cb_len); fflush(stdout); }
+
+            // Self-check: derive L from controlbits and compare to alpha
+            if (dbg_enabled) {
+                gf_elem_t *L = (gf_elem_t*)malloc(sizeof(gf_elem_t) * MCELIECE_N);
+                if (L) {
+                    support_from_cbits(L, sk->controlbits, MCELIECE_M, MCELIECE_N);
+                    int mismatch = 0;
+                    for (int j = 0; j < MCELIECE_N; j++) {
+                        if (L[j] != sk->alpha[j]) { mismatch = 1; break; }
+                    }
+                    printf("[keygen] support_from_cbits %s alpha\n", mismatch ? "!= (mismatch)" : "==");
+                    fflush(stdout);
+                    free(L);
+                }
+            }
         }
 
         // Self-verification removed to keep keygen pure and faster

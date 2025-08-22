@@ -129,6 +129,54 @@ ClassicMceliece/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/build
 .PHONY : ClassicMceliece/fast
 
+controlbits.o: controlbits.c.o
+.PHONY : controlbits.o
+
+# target to build an object file
+controlbits.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/controlbits.c.o
+.PHONY : controlbits.c.o
+
+controlbits.i: controlbits.c.i
+.PHONY : controlbits.i
+
+# target to preprocess a source file
+controlbits.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/controlbits.c.i
+.PHONY : controlbits.c.i
+
+controlbits.s: controlbits.c.s
+.PHONY : controlbits.s
+
+# target to generate assembly for a file
+controlbits.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/controlbits.c.s
+.PHONY : controlbits.c.s
+
+kat_drbg.o: kat_drbg.c.o
+.PHONY : kat_drbg.o
+
+# target to build an object file
+kat_drbg.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/kat_drbg.c.o
+.PHONY : kat_drbg.c.o
+
+kat_drbg.i: kat_drbg.c.i
+.PHONY : kat_drbg.i
+
+# target to preprocess a source file
+kat_drbg.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/kat_drbg.c.i
+.PHONY : kat_drbg.c.i
+
+kat_drbg.s: kat_drbg.c.s
+.PHONY : kat_drbg.s
+
+# target to generate assembly for a file
+kat_drbg.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/kat_drbg.c.s
+.PHONY : kat_drbg.c.s
+
 main.o: main.c.o
 .PHONY : main.o
 
@@ -200,6 +248,30 @@ mceliece_encode.s: mceliece_encode.c.s
 mceliece_encode.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/mceliece_encode.c.s
 .PHONY : mceliece_encode.c.s
+
+mceliece_genpoly.o: mceliece_genpoly.c.o
+.PHONY : mceliece_genpoly.o
+
+# target to build an object file
+mceliece_genpoly.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.o
+.PHONY : mceliece_genpoly.c.o
+
+mceliece_genpoly.i: mceliece_genpoly.c.i
+.PHONY : mceliece_genpoly.i
+
+# target to preprocess a source file
+mceliece_genpoly.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.i
+.PHONY : mceliece_genpoly.c.i
+
+mceliece_genpoly.s: mceliece_genpoly.c.s
+.PHONY : mceliece_genpoly.s
+
+# target to generate assembly for a file
+mceliece_genpoly.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/mceliece_genpoly.c.s
+.PHONY : mceliece_genpoly.c.s
 
 mceliece_gf.o: mceliece_gf.c.o
 .PHONY : mceliece_gf.o
@@ -369,6 +441,30 @@ mceliece_vector.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/mceliece_vector.c.s
 .PHONY : mceliece_vector.c.s
 
+rng.o: rng.c.o
+.PHONY : rng.o
+
+# target to build an object file
+rng.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/rng.c.o
+.PHONY : rng.c.o
+
+rng.i: rng.c.i
+.PHONY : rng.i
+
+# target to preprocess a source file
+rng.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/rng.c.i
+.PHONY : rng.c.i
+
+rng.s: rng.c.s
+.PHONY : rng.s
+
+# target to generate assembly for a file
+rng.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ClassicMceliece.dir/build.make CMakeFiles/ClassicMceliece.dir/rng.c.s
+.PHONY : rng.c.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -378,6 +474,12 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... ClassicMceliece"
+	@echo "... controlbits.o"
+	@echo "... controlbits.i"
+	@echo "... controlbits.s"
+	@echo "... kat_drbg.o"
+	@echo "... kat_drbg.i"
+	@echo "... kat_drbg.s"
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
@@ -387,6 +489,9 @@ help:
 	@echo "... mceliece_encode.o"
 	@echo "... mceliece_encode.i"
 	@echo "... mceliece_encode.s"
+	@echo "... mceliece_genpoly.o"
+	@echo "... mceliece_genpoly.i"
+	@echo "... mceliece_genpoly.s"
 	@echo "... mceliece_gf.o"
 	@echo "... mceliece_gf.i"
 	@echo "... mceliece_gf.s"
@@ -408,6 +513,9 @@ help:
 	@echo "... mceliece_vector.o"
 	@echo "... mceliece_vector.i"
 	@echo "... mceliece_vector.s"
+	@echo "... rng.o"
+	@echo "... rng.i"
+	@echo "... rng.s"
 .PHONY : help
 
 

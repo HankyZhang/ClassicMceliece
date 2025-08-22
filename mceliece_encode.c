@@ -6,6 +6,8 @@
 
 
 mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
+    const char *env_debug = getenv("MCELIECE_DEBUG");
+    int dbg_enabled = env_debug && env_debug[0] == '1';
     memset(e, 0, (n + 7) / 8);
 
     // 根据规范 2.1 FixedWeight() 算法
@@ -67,6 +69,7 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
         if (is_unique) {
             positions[unique_count] = pos;
             unique_count++;
+            if (dbg_enabled && (unique_count % 16 == 0)) { printf("[fixed_weight] selected %d/%d positions\n", unique_count, t); fflush(stdout); }
         }
         attempts++;
     }
@@ -83,6 +86,7 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
     for (int i = 0; i < t; i++) {
         vector_set_bit(e, positions[i], 1);
     }
+    if (dbg_enabled) { printf("[fixed_weight] done.\n"); fflush(stdout); }
 
     free(positions);
     free(d_values);
