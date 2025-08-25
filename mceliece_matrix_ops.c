@@ -38,10 +38,8 @@ int matrix_get_bit(const matrix_t *mat, int row, int col) {
                mat, row, mat ? mat->rows : -1, col, mat ? mat->cols : -1);
         return 0; // Return 0 instead of crashing
     }
-    int byte_idx = row * mat->cols_bytes + (col / 8);
-    int bit_idx = col % 8;
-
-    return (mat->data[byte_idx] >> bit_idx) & 1;
+    const uint8_t *p = &mat->data[row * mat->cols_bytes + (col >> 3)];
+    return (int)((p[0] >> (col & 7)) & 1);
 }
 
 void matrix_set_bit(matrix_t *mat, int row, int col, int bit) {
@@ -87,11 +85,16 @@ void matrix_swap_cols(matrix_t *mat, int col1, int col2) {
 // 矩阵行异或（row_dst = row_dst XOR row_src）
 void matrix_xor_rows(matrix_t *mat, int row_dst, int row_src) {
     if (row_dst >= mat->rows || row_src >= mat->rows) return;
-
-    for (int col = 0; col < mat->cols_bytes; col++) {
-        mat->data[row_dst * mat->cols_bytes + col] ^=
-                mat->data[row_src * mat->cols_bytes + col];
+    uint8_t *dst = &mat->data[row_dst * mat->cols_bytes];
+    const uint8_t *src = &mat->data[row_src * mat->cols_bytes];
+    int cb = mat->cols_bytes;
+    // 64-bit chunks
+    int off = 0;
+    for (; off + 8 <= cb; off += 8) {
+        *(uint64_t *)(dst + off) ^= *(const uint64_t *)(src + off);
     }
+    // tail
+    for (; off < cb; off++) dst[off] ^= src[off];
 }
 
 // 检查矩阵是否为系统形式
@@ -127,17 +130,15 @@ int reduce_to_systematic_form(matrix_t *H) {
 
     // --- Forward elimination to form upper triangular matrix ---
     for (i = 0; i < mt; i++) {
-        // 1. Find pivot (starting from column i, starting from row i)
+        // 1. Find pivot (byte-aligned scan to skip empty prefixes)
         int pivot_row = -1;
         int pivot_col = -1;
-        
         for (int col = i; col < n; col++) {
+            int byte_off = col >> 3;
+            uint8_t mask = (uint8_t)(1u << (col & 7));
+            const uint8_t *colptr = &H->data[i * H->cols_bytes + byte_off];
             for (int row = i; row < mt; row++) {
-                if (matrix_get_bit(H, row, col) == 1) {
-                    pivot_row = row;
-                    pivot_col = col;
-                    break;
-                }
+                if (colptr[(row - i) * H->cols_bytes] & mask) { pivot_row = row; pivot_col = col; break; }
             }
             if (pivot_row != -1) break;
         }
@@ -163,18 +164,35 @@ int reduce_to_systematic_form(matrix_t *H) {
         }
 
         // 4. Eliminate all elements below the pivot in column i
+        // Optimize: start XOR from the byte containing column i
+        int start_byte = i / 8;
         for (j = i + 1; j < mt; j++) {
             if (matrix_get_bit(H, j, i) == 1) {
-                matrix_xor_rows(H, j, i);
+                uint8_t *dst = &H->data[j * H->cols_bytes + start_byte];
+                const uint8_t *src = &H->data[i * H->cols_bytes + start_byte];
+                int cb = H->cols_bytes - start_byte;
+                int off = 0;
+                for (; off + 8 <= cb; off += 8) {
+                    *(uint64_t *)(dst + off) ^= *(const uint64_t *)(src + off);
+                }
+                for (; off < cb; off++) dst[off] ^= src[off];
             }
         }
     }
 
     // --- Back elimination to form identity matrix ---
     for (i = mt - 1; i >= 0; i--) {
+        int start_byte = i / 8;
         for (j = 0; j < i; j++) {
             if (matrix_get_bit(H, j, i) == 1) {
-                matrix_xor_rows(H, j, i);
+                uint8_t *dst = &H->data[j * H->cols_bytes + start_byte];
+                const uint8_t *src = &H->data[i * H->cols_bytes + start_byte];
+                int cb = H->cols_bytes - start_byte;
+                int off = 0;
+                for (; off + 8 <= cb; off += 8) {
+                    *(uint64_t *)(dst + off) ^= *(const uint64_t *)(src + off);
+                }
+                for (; off < cb; off++) dst[off] ^= src[off];
             }
         }
     }

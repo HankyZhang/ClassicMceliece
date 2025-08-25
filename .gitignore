@@ -1,0 +1,9 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# Output files
+*.out
+*.rsp
+*.log

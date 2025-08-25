@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include "debuglog.h"
 
 // PQClean-style helpers for KAT parity
 static inline uint16_t pqclean_load_gf_le(const unsigned char *src) {
@@ -94,6 +95,7 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         if (kat_drbg_is_inited()) {
             memset(e, 0, MCELIECE_N_BYTES);
             gen_e_pqclean(e);
+            dbg_hex_us("encap.e.first128B", e, MCELIECE_N_BYTES, 128);
             ret = MCELIECE_SUCCESS;
         } else {
             ret = fixed_weight_vector(e, MCELIECE_N, MCELIECE_T);
@@ -110,6 +112,7 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         // Step 2: Calculate C = Encode(e, T)
         if (dbg_enabled) { printf("[encap] encoding ciphertext C = H*e...\n"); fflush(stdout); }
         encode_vector(e, &pk->T, ciphertext);
+        dbg_hex_us("encap.C.first64B", ciphertext, MCELIECE_MT_BYTES, 64);
         
         
         

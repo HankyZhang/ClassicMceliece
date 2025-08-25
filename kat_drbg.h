@@ -17,6 +17,12 @@ void kat_drbg_randombytes(uint8_t *out, size_t len);
 // Returns 1 if DRBG has been initialized, else 0
 int kat_drbg_is_inited(void);
 
+// Expand r exactly like PQClean: out = SHAKE256(seed,33,len); also outputs delta (seed tail)
+void kat_expand_r(uint8_t *out, size_t len, uint8_t delta_out32[32]);
+
+// Return current delta (kg_seed[1..32]) without advancing or updating internal state
+void kat_get_delta(uint8_t out32[32]);
+
 #ifdef __cplusplus
 }
 #endif

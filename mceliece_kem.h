@@ -45,6 +45,9 @@ void run_kat_file(const char *req_path, const char *rsp_path);
 // KAT INT runner: read req and write an .int file containing encrypt/decrypt error positions
 void run_kat_int(const char *req_path, const char *int_path);
 
+// Serialize public key bytes exactly as in reference (row-packed systematic part)
+void pk_serialize_exact(const public_key_t *pk, uint8_t *out);
+
 #ifdef __cplusplus
 }
 #endif

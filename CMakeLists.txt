@@ -53,3 +53,5 @@ target_include_directories(ClassicMceliece PRIVATE .)
 if(UNIX)
     target_link_libraries(ClassicMceliece m)
 endif()
+
+# Additional targets can be added here as needed

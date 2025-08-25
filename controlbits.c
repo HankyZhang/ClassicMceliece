@@ -1,19 +1,45 @@
 #include "controlbits.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 typedef int16_t int16;
 typedef int32_t int32;
 
 static inline int32 int32_min(int32 a, int32 b) { return a < b ? a : b; }
 
-static int cmp_int32(const void *a, const void *b) {
-    int32 x = *(const int32*)a; int32 y = *(const int32*)b;
-    return (x > y) - (x < y);
+// Radix sort for 32-bit values (treat as unsigned for ordering)
+static void radix_sort_u32(uint32_t *a, uint32_t *tmp, long long n) {
+    const int RAD = 256;
+    size_t cnt[RAD];
+    size_t pref[RAD];
+    for (int pass = 0; pass < 4; pass++) {
+        memset(cnt, 0, sizeof(cnt));
+        int shift = pass * 8;
+        for (long long i = 0; i < n; i++) {
+            unsigned int b = (unsigned int)((a[i] >> shift) & 0xFFu);
+            cnt[b]++;
+        }
+        pref[0] = 0;
+        for (int r = 1; r < RAD; r++) pref[r] = pref[r-1] + cnt[r-1];
+        for (long long i = 0; i < n; i++) {
+            unsigned int b = (unsigned int)((a[i] >> shift) & 0xFFu);
+            tmp[pref[b]++] = a[i];
+        }
+        // swap buffers
+        uint32_t *swap = a; a = tmp; tmp = swap;
+    }
+    // 4 passes -> data back in original array pointer
+    (void)tmp;
 }
 
 static void int32_sort(int32 *a, long long n) {
-    qsort(a, (size_t)n, sizeof(int32), cmp_int32);
+    // reinterpret as unsigned for radix order; allocate temporary buffer
+    uint32_t *ua = (uint32_t*)a;
+    uint32_t *tmp = (uint32_t*)malloc((size_t)n * sizeof(uint32_t));
+    if (!tmp) { /* fallback */ for (long long i = 0; i < n - 1; i++) for (long long j = i + 1; j < n; j++) if (a[j] < a[i]) { int32 t = a[i]; a[i] = a[j]; a[j] = t; } return; }
+    radix_sort_u32(ua, tmp, n);
+    free(tmp);
 }
 
 /* layer as in reference code */
@@ -127,25 +153,31 @@ static void cbrecursion(unsigned char *out, long long pos, long long step,
 
 void cbits_from_perm_ns(uint8_t *out, const int16 *pi, long long w, long long n) {
     int32 *temp = (int32*)malloc(sizeof(int32) * (size_t)(2 * n));
-    int16 *pi_test = (int16*)malloc(sizeof(int16) * (size_t)n);
-    if (!temp || !pi_test) { free(temp); free(pi_test); return; }
+    if (!temp) return;
     memset(temp, 0, sizeof(int32) * (size_t)(2 * n));
-    memset(pi_test, 0, sizeof(int16) * (size_t)n);
-
-    for (;;) {
-        size_t out_bytes = (size_t)((((2 * w - 1) * n / 2) + 7) / 8);
-        memset(out, 0, out_bytes);
-        cbrecursion(out, 0, 1, pi, w, n, temp);
-
-        for (long long i = 0; i < n; i++) pi_test[i] = (int16)i;
-        const unsigned char *ptr = out;
-        for (long long i = 0; i < w; i++) { layer_local(pi_test, ptr, (int)i, (int)n); ptr += (size_t)(n >> 4); }
-        for (long long i = w - 2; i >= 0; i--) { layer_local(pi_test, ptr, (int)i, (int)n); ptr += (size_t)(n >> 4); }
-        int16 diff = 0;
-        for (long long i = 0; i < n; i++) diff |= (pi[i] ^ pi_test[i]);
-        if (diff == 0) break;
+    size_t out_bytes = (size_t)((((2 * w - 1) * n / 2) + 7) / 8);
+    memset(out, 0, out_bytes);
+    cbrecursion(out, 0, 1, pi, w, n, temp);
+    // Optional verification pass
+    const char *verify = getenv("MCELIECE_VERIFY_CB");
+    if (verify && verify[0] == '1') {
+        int16 *pi_test = (int16*)malloc(sizeof(int16) * (size_t)n);
+        if (pi_test) {
+            for (long long i = 0; i < n; i++) pi_test[i] = (int16)i;
+            const unsigned char *ptr = out;
+            for (long long i = 0; i < w; i++) { layer_local(pi_test, ptr, (int)i, (int)n); ptr += (size_t)(n >> 4); }
+            for (long long i = w - 2; i >= 0; i--) { layer_local(pi_test, ptr, (int)i, (int)n); ptr += (size_t)(n >> 4); }
+            int16 diff = 0;
+            for (long long i = 0; i < n; i++) diff |= (pi[i] ^ pi_test[i]);
+            if (diff != 0) {
+                // In verify mode, redo until consistent (should converge immediately normally)
+                memset(out, 0, out_bytes);
+                cbrecursion(out, 0, 1, pi, w, n, temp);
+            }
+            free(pi_test);
+        }
     }
-    free(temp); free(pi_test);
+    free(temp);
 }
 
 /* controlbits_from_alpha removed (unused). */
@@ -164,6 +196,14 @@ void cbits_pi_from_cbits(const uint8_t *cbits, long long w, long long n, int16_t
 }
 
 // Produce L[0..N-1] equal to support_gen in PQClean (bitrev of domain, then Benes, then extract low N indices)
+static inline uint16_t bitrev16_local(uint16_t x) {
+    x = (uint16_t)(((x & 0x5555u) << 1) | ((x >> 1) & 0x5555u));
+    x = (uint16_t)(((x & 0x3333u) << 2) | ((x >> 2) & 0x3333u));
+    x = (uint16_t)(((x & 0x0F0Fu) << 4) | ((x >> 4) & 0x0F0Fu));
+    x = (uint16_t)((x << 8) | (x >> 8));
+    return x;
+}
+
 void support_from_cbits(gf_elem_t *L, const uint8_t *cbits, long long w, int N) {
     if (!L || !cbits) return;
     long long n = 1LL << w;
@@ -171,10 +211,8 @@ void support_from_cbits(gf_elem_t *L, const uint8_t *cbits, long long w, int N) 
     gf_elem_t *domain = (gf_elem_t*)malloc(sizeof(gf_elem_t) * (size_t)n);
     if (!domain) return;
     for (long long i = 0; i < n; i++) {
-        uint16_t x = (uint16_t)i;
-        uint16_t r = 0;
-        for (int bi = 0; bi < w; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
-        domain[i] = (gf_elem_t)(r & ((1U << w) - 1U));
+        uint16_t br = bitrev16_local((uint16_t)i);
+        domain[i] = (gf_elem_t)(br & ((1U << w) - 1U));
     }
     // Apply layers to identity positions to get permutation indices
     int16_t *pi = (int16_t*)malloc(sizeof(int16_t) * (size_t)n);

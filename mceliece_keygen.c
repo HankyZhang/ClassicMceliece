@@ -3,6 +3,7 @@
 #include "kat_drbg.h"
 #include "mceliece_kem.h"
 #include "controlbits.h"
+#include "debuglog.h"
 
 // reverses the order of the m least significant bits of a 16-bit unsigned integer x.
 static inline uint16_t bitrev_m_u16(uint16_t x, int m) {
@@ -98,6 +99,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         // 1. Generate long random string E using internal PRG from delta.
         //    In KAT mode we must NOT consume the global DRBG here to match PQClean.
             mceliece_prg(sk->delta, E, prg_output_len_bytes);
+        dbg_hex_us("seeded_key_gen.E.first256", E, prg_output_len_bytes, 256);
 
         // 2. Extract next retry seed delta' from the end of E
         uint8_t delta_prime[MCELIECE_L_BYTES];
@@ -114,6 +116,8 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
+        dbg_hex_us("field_ordering.bits.first256", field_ordering_bits_ptr, field_ordering_len_bytes, 256);
+        dbg_hex_us("alpha.first64", sk->alpha, MCELIECE_N * sizeof(gf_elem_t), 64*2);
 
         // 5. Generate Goppa polynomial g
         if (generate_irreducible_poly_final(&sk->g, irreducible_poly_bits_ptr) != MCELIECE_SUCCESS) {
@@ -121,6 +125,8 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
+        dbg_hex_us("irr.bits", irreducible_poly_bits_ptr, irreducible_poly_len_bytes, irreducible_poly_len_bytes);
+        dbg_hex_us("g.coeffs.first64B", sk->g.coeffs, (sk->g.max_degree+1)*sizeof(gf_elem_t), 64);
 
         // Ensure alpha is a support set for g (no roots of g)
         int is_support_set = 1;
@@ -164,6 +170,13 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
+        }
+        // dump first few rows of [I|T]
+        if (dbg_enabled_us()) {
+            for (int r = 0; r < 4 && r < Htmp->rows; r++) {
+                int row_bytes = Htmp->cols_bytes;
+                dbg_hex_us("Hsys.row", Htmp->data + r*row_bytes, row_bytes, 64);
+            }
         }
         if (dbg_enabled) { printf("[keygen] reduction complete. extracting T...\n"); fflush(stdout); }
         // Extract T from reduced Htmp
