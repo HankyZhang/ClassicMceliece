@@ -46,7 +46,9 @@ void run_kat_file(const char *req_path, const char *rsp_path);
 void run_kat_int(const char *req_path, const char *int_path);
 
 // Serialize public key bytes exactly as in reference (row-packed systematic part)
-void pk_serialize_exact(const public_key_t *pk, uint8_t *out);
+static inline int pk_serialize_exact(const public_key_t *pk, uint8_t *out) {
+    return public_key_serialize_refpacking(pk, out);
+}
 
 #ifdef __cplusplus
 }

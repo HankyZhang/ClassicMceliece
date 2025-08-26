@@ -2,6 +2,7 @@
   This file is for matrix transposition
 */
 
+#include "namespace_define.h"
 #include "transpose.h"
 
 #include <stdint.h>

@@ -1,5 +1,9 @@
 
 #include "mceliece_matrix_ops.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "mceliece_poly.h"
 
 
 
@@ -115,90 +119,126 @@ int matrix_is_systematic(const matrix_t *mat) {
 }
 
 int reduce_to_systematic_form(matrix_t *H) {
-    int mt = H->rows;
-    int n = H->cols;
-    int i, j;
+    // Delegate to robust row/column pivoting eliminator
+    return reduce_to_systematic_form_record(H, NULL, NULL);
+}
 
-    // Create column permutation array
-    int *col_perm = malloc(n * sizeof(int));
-    if (!col_perm) return -1;
-    
-    // Initialize column permutation
-    for (i = 0; i < n; i++) {
-        col_perm[i] = i;
+// Build H using the same bit-sliced packing and column grouping convention
+// as the reference path: rows are grouped by bit position (k in 0..GFBITS-1)
+// within each power i in 0..T-1; columns are packed 8-at-a-time into bytes.
+int build_parity_check_matrix_reference_style(matrix_t *H, const polynomial_t *g, const gf_elem_t *support) {
+    if (!H || !g || !support) return -1;
+    const int t = MCELIECE_T;
+    const int m = MCELIECE_M;
+    const int n = MCELIECE_N;
+    if (H->rows != t * m || H->cols != n) return -1;
+
+    // inv[j] = 1 / g(support[j])
+    gf_elem_t *inv = (gf_elem_t*)malloc((size_t)n * sizeof(gf_elem_t));
+    if (!inv) return -1;
+    for (int j = 0; j < n; j++) {
+        gf_elem_t a = support[j];
+        gf_elem_t r = polynomial_eval(g, a);
+        if (r == 0) { free(inv); return -1; }
+        inv[j] = gf_inv(r);
     }
 
-    // --- Forward elimination to form upper triangular matrix ---
-    for (i = 0; i < mt; i++) {
-        // 1. Find pivot (byte-aligned scan to skip empty prefixes)
-        int pivot_row = -1;
-        int pivot_col = -1;
-        for (int col = i; col < n; col++) {
-            int byte_off = col >> 3;
-            uint8_t mask = (uint8_t)(1u << (col & 7));
-            const uint8_t *colptr = &H->data[i * H->cols_bytes + byte_off];
-            for (int row = i; row < mt; row++) {
-                if (colptr[(row - i) * H->cols_bytes] & mask) { pivot_row = row; pivot_col = col; break; }
-            }
-            if (pivot_row != -1) break;
-        }
+    // Clear matrix
+    memset(H->data, 0, (size_t)H->rows * (size_t)H->cols_bytes);
 
-        if (pivot_row == -1) {
-            // No pivot found, matrix is singular
-            free(col_perm);
-            return -1;
-        }
-
-        // 2. Swap pivot row to current row i
-        if (pivot_row != i) {
-            matrix_swap_rows(H, i, pivot_row);
-        }
-
-        // 3. Swap pivot column to current column i
-        if (pivot_col != i) {
-            matrix_swap_cols(H, i, pivot_col);
-            // Update column permutation
-            int temp = col_perm[i];
-            col_perm[i] = col_perm[pivot_col];
-            col_perm[pivot_col] = temp;
-        }
-
-        // 4. Eliminate all elements below the pivot in column i
-        // Optimize: start XOR from the byte containing column i
-        int start_byte = i / 8;
-        for (j = i + 1; j < mt; j++) {
-            if (matrix_get_bit(H, j, i) == 1) {
-                uint8_t *dst = &H->data[j * H->cols_bytes + start_byte];
-                const uint8_t *src = &H->data[i * H->cols_bytes + start_byte];
-                int cb = H->cols_bytes - start_byte;
-                int off = 0;
-                for (; off + 8 <= cb; off += 8) {
-                    *(uint64_t *)(dst + off) ^= *(const uint64_t *)(src + off);
+    // Fill rows: for each i (power), for each 8-column block, for each bit k
+    for (int i = 0; i < t; i++) {
+        for (int j = 0; j < n; j += 8) {
+            int block_len = (j + 8 <= n) ? 8 : (n - j);
+            for (int k = 0; k < m; k++) {
+                unsigned char b = 0;
+                // Build byte from inv[j+7..j] bit k (left to right)
+                for (int tbit = block_len - 1; tbit >= 0; tbit--) {
+                    b <<= 1;
+                    b |= (unsigned char)((inv[j + tbit] >> k) & 1);
                 }
-                for (; off < cb; off++) dst[off] ^= src[off];
-            }
-        }
-    }
-
-    // --- Back elimination to form identity matrix ---
-    for (i = mt - 1; i >= 0; i--) {
-        int start_byte = i / 8;
-        for (j = 0; j < i; j++) {
-            if (matrix_get_bit(H, j, i) == 1) {
-                uint8_t *dst = &H->data[j * H->cols_bytes + start_byte];
-                const uint8_t *src = &H->data[i * H->cols_bytes + start_byte];
-                int cb = H->cols_bytes - start_byte;
-                int off = 0;
-                for (; off + 8 <= cb; off += 8) {
-                    *(uint64_t *)(dst + off) ^= *(const uint64_t *)(src + off);
+                int row = i * m + k;
+                // Write bits of b into columns j..j+block_len-1
+                for (int tcol = 0; tcol < block_len; tcol++) {
+                    int bit = (b >> (block_len - 1 - tcol)) & 1;
+                    matrix_set_bit(H, row, j + tcol, bit);
                 }
-                for (; off < cb; off++) dst[off] ^= src[off];
+            }
+        }
+        // inv[j] *= support[j] for next power
+        for (int j = 0; j < n; j++) inv[j] = gf_mul(inv[j], support[j]);
+    }
+
+    free(inv);
+    return 0;
+}
+
+// Perform the byte/bit-ordered elimination that assumes a fixed pivot walk
+// through the left mt x mt identity block without column swaps.
+int reduce_to_systematic_form_reference_style(matrix_t *H) {
+    if (!H) return -1;
+    const int mt = H->rows;
+    const int left_bytes = (mt + 7) / 8;
+
+    for (int byte_idx = 0; byte_idx < left_bytes; byte_idx++) {
+        for (int bit_in_byte = 0; bit_in_byte < 8; bit_in_byte++) {
+            int row = byte_idx * 8 + bit_in_byte;
+            if (row >= mt) break;
+
+            // Forward: make pivot bit unique by xoring rows below when needed
+            for (int r = row + 1; r < mt; r++) {
+                unsigned char x = (unsigned char)(H->data[row * H->cols_bytes + byte_idx] ^
+                                                  H->data[r   * H->cols_bytes + byte_idx]);
+                unsigned char m = (unsigned char)((x >> bit_in_byte) & 1u);
+                m = (unsigned char)(-(signed char)m);
+                for (int c = 0; c < H->cols_bytes; c++) {
+                    H->data[row * H->cols_bytes + c] ^= (unsigned char)(H->data[r * H->cols_bytes + c] & m);
+                }
+            }
+
+            // Require pivot = 1
+            if (((H->data[row * H->cols_bytes + byte_idx] >> bit_in_byte) & 1u) == 0u) {
+                return -1;
+            }
+
+            // Backward: clear pivot bit from all other rows
+            for (int r = 0; r < mt; r++) {
+                if (r == row) continue;
+                unsigned char m = (unsigned char)((H->data[r * H->cols_bytes + byte_idx] >> bit_in_byte) & 1u);
+                m = (unsigned char)(-(signed char)m);
+                for (int c = 0; c < H->cols_bytes; c++) {
+                    H->data[r * H->cols_bytes + c] ^= (unsigned char)(H->data[row * H->cols_bytes + c] & m);
+                }
             }
         }
     }
+    return 0;
+}
 
-    free(col_perm);
-    return 0; // Success
+// Export the right block of a matrix in the same byte/bit packing as the
+// reference implementation uses for the public key rows. Bits are packed
+// MSB-first within each byte for groups of 8 columns.
+int matrix_export_right_block_reference_packing(const matrix_t *H, int left_cols, unsigned char *out, int out_row_bytes) {
+    if (!H || !out) return -1;
+    if (left_cols < 0 || left_cols > H->cols) return -1;
+    int right_cols = H->cols - left_cols;
+    if (right_cols % 8 != 0) return -1; // reference pk expects whole bytes
+    if (out_row_bytes != right_cols / 8) return -1;
+
+    for (int r = 0; r < H->rows; r++) {
+        unsigned char *dst = out + r * out_row_bytes;
+        for (int j = 0; j < right_cols; j += 8) {
+            unsigned char b = 0;
+            // bit7 corresponds to column left_cols + j
+            for (int t = 0; t < 8; t++) {
+                int bit = matrix_get_bit(H, r, left_cols + j + t) & 1;
+                b <<= 1;
+                b |= (unsigned char)bit;
+            }
+            dst[j / 8] = b;
+        }
+    }
+    return 0;
 }
 
 // Same as reduce_to_systematic_form but also records the row operations in U_out (mt x mt)

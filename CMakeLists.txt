@@ -56,30 +56,27 @@ endif()
 
 # Steps 1-5 Testing Targets
 
-# Early steps comparison test
-add_executable(compare_early_steps compare_early_steps.c mceliece_gf.c mceliece_shake.c mceliece_poly.c mceliece_matrix_ops.c mceliece_vector.c mceliece_keygen.c mceliece_encode.c mceliece_decode.c mceliece_kem.c mceliece_genpoly.c kat_drbg.c rng.c controlbits.c)
-target_include_directories(compare_early_steps PRIVATE .)
-if(UNIX)
-    target_link_libraries(compare_early_steps m)
-endif()
+# Re-enable compare_steps_1_5 test target for KAT-style function-by-function checks
+add_executable(compare_steps_1_5
+    compare_steps_1_5.c
+    mceliece_gf.c mceliece_shake.c reference_shake.c mceliece_poly.c mceliece_matrix_ops.c mceliece_vector.c mceliece_keygen.c mceliece_encode.c mceliece_decode.c mceliece_kem.c mceliece_genpoly.c kat_drbg.c rng.c controlbits.c
+    # Reference implementation sources
+    mceliece6688128/sk_gen.c
+    mceliece6688128/pk_gen.c
+    mceliece6688128/gf.c
+    mceliece6688128/benes.c
+    mceliece6688128/controlbits.c
+    mceliece6688128/root.c
+    mceliece6688128/util.c
+    mceliece6688128/transpose.c
+)
 
-# New SHAKE implementation test
-add_executable(test_new_shake test_new_shake.c mceliece_shake.c)
-target_include_directories(test_new_shake PRIVATE .)
-if(UNIX)
-    target_link_libraries(test_new_shake m)
-endif()
+# Ensure reference sources are namespaced as ref_* and enable test comparisons
+target_compile_definitions(compare_steps_1_5 PRIVATE "CRYPTO_NAMESPACE(x)=ref_##x" ENABLE_REFERENCE_TESTS=1)
 
-# SHAKE implementation comparison test
-add_executable(test_shake_comparison test_shake_comparison.c mceliece_shake.c reference_shake.c)
-target_include_directories(test_shake_comparison PRIVATE .)
-if(UNIX)
-    target_link_libraries(test_shake_comparison m)
-endif()
-
-# Compare Steps 1-5 test
-add_executable(compare_steps_1_5 compare_steps_1_5.c mceliece_gf.c mceliece_shake.c reference_shake.c mceliece_poly.c mceliece_matrix_ops.c mceliece_vector.c mceliece_keygen.c mceliece_encode.c mceliece_decode.c mceliece_kem.c mceliece_genpoly.c kat_drbg.c rng.c controlbits.c)
 target_include_directories(compare_steps_1_5 PRIVATE .)
+# Reference headers
+target_include_directories(compare_steps_1_5 PRIVATE mceliece6688128 mceliece6688128/subroutines)
 if(UNIX)
     target_link_libraries(compare_steps_1_5 m)
 endif()

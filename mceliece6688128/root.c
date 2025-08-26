@@ -2,6 +2,7 @@
   This file is for evaluating a polynomial at one or more field elements
 */
 
+#include "namespace_define.h"
 #include "root.h"
 #include "params.h"
 #include "gf.h"

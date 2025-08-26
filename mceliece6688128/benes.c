@@ -5,6 +5,7 @@
   https://eprint.iacr.org/2017/793.pdf
 */
 
+#include "namespace_define.h"
 #include "util.h"
 #include "transpose.h"
 #include "params.h"

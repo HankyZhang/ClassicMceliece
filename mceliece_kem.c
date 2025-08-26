@@ -589,11 +589,23 @@ void run_kat_file(const char *req_path, const char *rsp_path) {
             fprintf(fout, "\n");
             // pk serialization: row-packed T
             fprintf(fout, "pk = ");
-            for (int r = 0; r < pk->T.rows; r++) {
-                int row_bytes = pk->T.cols_bytes;
-                const uint8_t *row = pk->T.data + r * row_bytes;
-                for (int b = 0; b < row_bytes; b++) fprintf(fout, "%02X", row[b]);
+            // Export T with reference packing (MSB-first within each byte)
+            int out_row_bytes = pk->T.cols / 8;
+            unsigned char *Tser = (unsigned char*)malloc((size_t)pk->T.rows * (size_t)out_row_bytes);
+            if (Tser && public_key_serialize_refpacking(pk, Tser) == 0) {
+                for (int r = 0; r < pk->T.rows; r++) {
+                    const unsigned char *row = Tser + (size_t)r * out_row_bytes;
+                    for (int b = 0; b < out_row_bytes; b++) fprintf(fout, "%02X", row[b]);
+                }
+            } else {
+                // Fallback to raw internal layout if export fails
+                for (int r = 0; r < pk->T.rows; r++) {
+                    int row_bytes = pk->T.cols_bytes;
+                    const uint8_t *row = pk->T.data + r * row_bytes;
+                    for (int b = 0; b < row_bytes; b++) fprintf(fout, "%02X", row[b]);
+                }
             }
+            if (Tser) free(Tser);
             fprintf(fout, "\n");
             // sk serialization: delta || c(8 LE) || g(t coeffs, 2B LE) || controlbits((2m-1)2^(m-4) bytes) || s
             fprintf(fout, "sk = ");

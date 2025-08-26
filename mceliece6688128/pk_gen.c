@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
 
+#include "namespace_define.h"
 #include "controlbits.h"
 #include "uint64_sort.h"
 #include "pk_gen.h"
@@ -16,6 +18,13 @@
 #include "util.h"
 #include "crypto_declassify.h"
 #include "crypto_uint64.h"
+
+// Debug toggle via environment variable MCELIECE_DEBUG_REF_PKGEN=1
+static int dbg_ref_pkgen(void)
+{
+	const char *e = getenv("MCELIECE_DEBUG_REF_PKGEN");
+	return e && e[0] == '1';
+}
 
 static crypto_uint64 uint64_is_equal_declassify(uint64_t t,uint64_t u)
 {
@@ -61,18 +70,48 @@ int pk_gen(unsigned char * pk, unsigned char * sk, uint32_t * perm, int16_t * pi
 		buf[i] |= i;
 	}
 
+	if (dbg_ref_pkgen())
+	{
+		printf("[ref pk_gen] perm[0..7] before sort: ");
+		for (i = 0; i < 8; i++) printf("%08X ", (unsigned)perm[i]);
+		printf("\n");
+	}
+
 	uint64_sort(buf, 1 << GFBITS);
 
 	for (i = 1; i < (1 << GFBITS); i++)
 		if (uint64_is_equal_declassify(buf[i-1] >> 31,buf[i] >> 31))
+		{
+			if (dbg_ref_pkgen())
+			{
+				printf("[ref pk_gen] duplicate after sort at i=%d: hi_prev=%08X hi_cur=%08X\n",
+					i, (unsigned)(buf[i-1] >> 31), (unsigned)(buf[i] >> 31));
+			}
 			return -1;
+		}
 
 	for (i = 0; i < (1 << GFBITS); i++) pi[i] = buf[i] & GFMASK;
 	for (i = 0; i < SYS_N;         i++) L[i] = bitrev(pi[i]);
 
+	if (dbg_ref_pkgen())
+	{
+		printf("[ref pk_gen] pi[0..7]: ");
+		for (i = 0; i < 8; i++) printf("%04X ", (unsigned)(uint16_t)pi[i]);
+		printf("\n[ref pk_gen] L[0..7]:  ");
+		for (i = 0; i < 8; i++) printf("%04X ", (unsigned)L[i]);
+		printf("\n");
+	}
+
 	// filling the matrix
 
 	root(inv, g, L);
+
+	if (dbg_ref_pkgen())
+	{
+		int zeros = 0;
+		for (i = 0; i < SYS_N; i++) if (inv[i] == 0) zeros++;
+		printf("[ref pk_gen] zeros in g(L) before inversion: %d\n", zeros);
+	}
 		
 	for (i = 0; i < SYS_N; i++)
 		inv[i] = gf_inv(inv[i]);
@@ -126,6 +165,11 @@ int pk_gen(unsigned char * pk, unsigned char * sk, uint32_t * perm, int16_t * pi
 
                 if ( uint64_is_zero_declassify((mat[ row ][ i ] >> j) & 1) ) // return if not systematic
 		{
+			if (dbg_ref_pkgen())
+			{
+				printf("[ref pk_gen] pivot zero at row=%d, i=%d (bit=%d). mat[row][i]=%02X\n",
+					row, i, j, (unsigned)mat[row][i]);
+			}
 			return -1;
 		}
 
@@ -146,6 +190,10 @@ int pk_gen(unsigned char * pk, unsigned char * sk, uint32_t * perm, int16_t * pi
 	for (i = 0; i < PK_NROWS; i++)
 		memcpy(pk + i*PK_ROW_BYTES, mat[i] + PK_NROWS/8, PK_ROW_BYTES);
 
+	if (dbg_ref_pkgen())
+	{
+		printf("[ref pk_gen] success\n");
+	}
 	return 0;
 }
 

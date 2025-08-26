@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include "crypto_declassify.h"
+#include "namespace_define.h"
 #include "controlbits.h"
 #include "int32_sort.h"
 typedef int16_t int16;

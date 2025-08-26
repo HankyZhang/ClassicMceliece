@@ -1,13 +1,30 @@
-# Build directories
+# Third-party dependencies
+mceliece6688128/third_party/KeccakCodePackage/
+mceliece6688128/third_party/XKCP/
+
+# Build artifacts
 build/
-build-*/
 cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
 
-# Output files
-*.out
-*.rsp
-*.log
+# Debug files
+debug_*
+test_*
 
-# Test binaries
-/test_*
-!/test_*.c
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

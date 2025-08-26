@@ -99,6 +99,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         // 1. Generate long random string E using internal PRG from delta.
         //    In KAT mode we must NOT consume the global DRBG here to match PQClean.
             mceliece_prg(sk->delta, E, prg_output_len_bytes);
+        }
         dbg_hex_us("seeded_key_gen.E.first256", E, prg_output_len_bytes, 256);
 
         // 2. Extract next retry seed delta' from the end of E
@@ -147,39 +148,23 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         int n = MCELIECE_N;
         matrix_t *Htmp = matrix_create(mt, n);
         if (!Htmp) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
-        if (dbg_enabled) { printf("[keygen] building H: %d x %d\n", mt, n); fflush(stdout); }
-        // Optimize H build: for each column j, compute g(alpha[j]) once and iteratively build alpha[j]^i
-        for (int j = 0; j < MCELIECE_N; j++) {
-            gf_elem_t alpha_j = sk->alpha[j];
-            gf_elem_t g_alpha = polynomial_eval(&sk->g, alpha_j);
-            if (g_alpha == 0) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: encountered g(alpha[%d])=0 during H build\n", attempt+1, j); matrix_free(Htmp); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); goto retry; }
-            gf_elem_t alpha_power = 1; // alpha_j^0
-        for (int i = 0; i < MCELIECE_T; i++) {
-                gf_elem_t M_ij = gf_div(alpha_power, g_alpha);
-                for (int bit = 0; bit < MCELIECE_M; bit++) {
-                    int bit_value = (M_ij >> bit) & 1;
-                    matrix_set_bit(Htmp, i * MCELIECE_M + bit, j, bit_value);
-                }
-                alpha_power = gf_mul(alpha_power, alpha_j);
-            }
-            if (dbg_enabled && (j % 512 == 0)) { printf("[keygen] H col %d/%d\n", j, MCELIECE_N); fflush(stdout); }
+        if (dbg_enabled) { printf("[keygen] building H (reference-style packing): %d x %d\n", mt, n); fflush(stdout); }
+        if (build_parity_check_matrix_reference_style(Htmp, &sk->g, sk->alpha) != 0) {
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: build_parity_check_matrix_reference_style failed\n", attempt+1);
+            matrix_free(Htmp);
+            memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
+            continue;
         }
         if (dbg_enabled) { printf("[keygen] reducing H to systematic form...\n"); fflush(stdout); }
-        if (reduce_to_systematic_form(Htmp) != 0) {
+        if (reduce_to_systematic_form_reference_style(Htmp) != 0) {
             if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form failed (singular)\n", attempt+1);
             matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
-        // dump first few rows of [I|T]
-        if (dbg_enabled_us()) {
-            for (int r = 0; r < 4 && r < Htmp->rows; r++) {
-                int row_bytes = Htmp->cols_bytes;
-                dbg_hex_us("Hsys.row", Htmp->data + r*row_bytes, row_bytes, 64);
-            }
-        }
         if (dbg_enabled) { printf("[keygen] reduction complete. extracting T...\n"); fflush(stdout); }
-        // Extract T from reduced Htmp
+        // Extract T from reduced Htmp with reference packing into pk->T storage
+        // pk->T is bit-addressable; copy bit-by-bit from right block
         for (int i = 0; i < mt; i++) {
             for (int j = 0; j < (MCELIECE_N - mt); j++) {
                 int bit = matrix_get_bit(Htmp, i, mt + j);
@@ -266,7 +251,6 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
         free(E);
         return MCELIECE_SUCCESS;
-retry: ;
     }
 
     // Reached maximum attempts, generation failed
@@ -347,30 +331,21 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 
 
 mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
+    // Ensure GF tables are initialized before any gf_* operations
+    gf_init();
     int t = MCELIECE_T;
     int m = MCELIECE_M;
 
     memset(g->coeffs, 0, (g->max_degree + 1) * sizeof(gf_elem_t));
     g->degree = -1;
 
-    // Reference packs sigma1=16 bits per coefficient, but reads across byte boundary over the entire stream
-    int coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8; // 2 * t bytes
-    if (coeff_pool_bytes <= 0) coeff_pool_bytes = (MCELIECE_SIGMA1 * MCELIECE_T) / 8;
-
-    // Build f(x) with degree < t from random bits: sliding bit window over the entire pool
+    // Reference-compatible packing: read t little-endian 16-bit values, mask to m bits
+    // random_bits is expected to be 2*t bytes long for the poly section
     gf_elem_t *f = malloc(sizeof(gf_elem_t) * t);
     if (!f) return MCELIECE_ERROR_MEMORY;
-    int bitpos = 0;
     for (int i = 0; i < t; i++) {
-        uint32_t acc = 0;
-        int byte_idx = bitpos >> 3;
-        int bit_off = bitpos & 7;
-        if (byte_idx < coeff_pool_bytes) acc |= (uint32_t)random_bits[byte_idx];
-        if (byte_idx + 1 < coeff_pool_bytes) acc |= (uint32_t)random_bits[byte_idx + 1] << 8;
-        if (byte_idx + 2 < coeff_pool_bytes) acc |= (uint32_t)random_bits[byte_idx + 2] << 16;
-        acc >>= bit_off;
-        f[i] = (gf_elem_t)(acc & ((1u << m) - 1));
-        bitpos += MCELIECE_SIGMA1;
+        uint16_t le = (uint16_t)random_bits[2*i] | ((uint16_t)random_bits[2*i + 1] << 8);
+        f[i] = (gf_elem_t)(le & ((1U << m) - 1U));
     }
     if (f[t - 1] == 0) f[t - 1] = 1;
 

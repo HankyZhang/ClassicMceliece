@@ -50,6 +50,8 @@ void gf_init(void) {
     }
 
     gf_log[0] = 0;
+    // Ensure table closure: needed for inv(1) which accesses index Q-1
+    gf_antilog[MCELIECE_Q - 1] = 1;
 }
 
 
@@ -101,7 +103,7 @@ static gf_elem_t gf_mul_for_init(gf_elem_t a, gf_elem_t b) {
 }
 
 
-// Optimized GF(2^13) multiplication using lookup tables
+// Correct GF(2^13) multiplication using bit-level reduction (matches reference math)
 gf_elem_t gf_mul(gf_elem_t a, gf_elem_t b) {
     if (a == 0 || b == 0) {
         return 0;

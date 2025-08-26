@@ -9,6 +9,7 @@
 #include <CommonCrypto/CommonCryptor.h>
 #include <stdlib.h>
 #include "debuglog.h"
+#include "mceliece_shake.h"
 
 AES256_CTR_DRBG_struct  DRBG_ctx;
 

@@ -1,36 +1,36 @@
 #include "mceliece_genpoly.h"
 #include "mceliece_gf.h"
+#include "debuglog.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-// Scalar, bitslice-inspired implementation that avoids liboqs code.
-// We construct the 128x128 binary matrix from the linear recurrences of f
-// and perform Gaussian elimination over F2 to recover g.
+// Reference-aligned minimal connection polynomial (Berlekamp-Massey form)
+// We build the (t+1) x t matrix M whose rows are 1, f, f^2, ..., f^t
+// over GF(2^m) and perform the same elimination as the reference to recover
+// the connection polynomial coefficients in the last row.
 
-// Build the Krylov-like matrix M (t x t) over GF(2^m): columns are f^k mod x^t
-static int build_Krylov_columns(const gf_elem_t *f, int t, gf_elem_t *cols) {
-    // cols[k * t + i] = coefficient x^i of (f^k mod x^t)
-    // k=0..t-1, i=0..t-1
-    // v0 = 1
-    for (int i = 0; i < t; i++) cols[0 * t + i] = (i == 0) ? 1 : 0;
-    // Temporary vector for multiplication
-    gf_elem_t *prev = (gf_elem_t*)malloc(sizeof(gf_elem_t) * t);
-    gf_elem_t *next = (gf_elem_t*)malloc(sizeof(gf_elem_t) * t);
-    if (!prev || !next) { if (prev) free(prev); if (next) free(next); return -1; }
-    for (int i = 0; i < t; i++) prev[i] = cols[i];
-    for (int k = 1; k < t; k++) {
-        // next = prev * f truncated to deg < t
-        for (int i = 0; i < t; i++) {
-            gf_elem_t acc = 0;
-            for (int j = 0; j <= i; j++) acc = gf_add(acc, gf_mul(prev[j], f[i - j]));
-            next[i] = acc;
+// Vector multiply in GF((2^m)^t) with reference reduction: x^t + x^7 + x^2 + x + 1
+// Matches reference GF_mul used in genpoly_gen
+static inline void gf_vec_mul(gf_elem_t *out, const gf_elem_t *in0, const gf_elem_t *in1, int t) {
+    // convolution
+    int prod_len = t * 2 - 1;
+    gf_elem_t *prod = (gf_elem_t*)alloca((size_t)prod_len * sizeof(gf_elem_t));
+    for (int i = 0; i < prod_len; i++) prod[i] = 0;
+    for (int i = 0; i < t; i++) {
+        for (int j = 0; j < t; j++) {
+            prod[i + j] ^= gf_mul(in0[i], in1[j]);
         }
-        for (int i = 0; i < t; i++) cols[k * t + i] = next[i];
-        // swap
-        gf_elem_t *tmp = prev; prev = next; next = tmp;
     }
-    free(prev); free(next);
-    return 0;
+    // reduce high terms using fixed pentanomial
+    for (int i = (t - 1) * 2; i >= t; i--) {
+        gf_elem_t v = prod[i];
+        prod[i - t + 7] ^= v;
+        prod[i - t + 2] ^= v;
+        prod[i - t + 1] ^= v;
+        prod[i - t + 0] ^= v;
+    }
+    for (int i = 0; i < t; i++) out[i] = prod[i];
 }
 
 // Convert the GF(2^m) linear system to a binary  (m*t) x (m*t) system
@@ -51,129 +51,125 @@ static void build_mul_block(gf_elem_t coeff, int m, unsigned char *block /* size
     }
 }
 
-static void expand_to_binary_system(const gf_elem_t *M, const gf_elem_t *v, int m, int t,
-                                   unsigned char *A, unsigned char *b) {
-    // A is (m*t) x (m*t) over F2, stored row-major, 1 byte per entry (0/1)
-    // b is length (m*t)
-    memset(A, 0, (size_t)(m * t) * (size_t)(m * t));
-    memset(b, 0, (size_t)(m * t));
-    unsigned char *block = (unsigned char*)malloc((size_t)m * (size_t)m);
-    if (!block) return;
-    for (int rg = 0; rg < t; rg++) {
-        for (int cg = 0; cg < t; cg++) {
-            gf_elem_t coeff = M[rg * t + cg];
-            build_mul_block(coeff, m, block);
-            // Place block at rows [rg*m .. rg*m+m), cols [cg*m .. cg*m+m)
-            for (int r = 0; r < m; r++) {
-                int row = rg * m + r;
-                unsigned char *dst = &A[row * (m * t) + cg * m];
-                memcpy(dst, &block[r * m], (size_t)m);
-            }
-        }
-        // RHS
-        gf_elem_t rhs = v[rg];
-        for (int bit = 0; bit < m; bit++) {
-            int row = rg * m + bit;
-            b[row] = (rhs >> bit) & 1;
-        }
+// Build (t+1) x t matrix of GF(2^m) elements: mat[row][col]
+// row 0: 1,0,...,0; row 1: f; row 2: f^2; ...; row t: f^t
+static int build_power_matrix(const gf_elem_t *f, int t, gf_elem_t *mat /* (t+1)*t */) {
+    for (int i = 0; i < t; i++) mat[i] = (i == 0) ? 1 : 0;
+    memcpy(&mat[1 * t], f, (size_t)t * sizeof(gf_elem_t));
+    gf_elem_t *prev = (gf_elem_t*)malloc((size_t)t * sizeof(gf_elem_t));
+    gf_elem_t *next = (gf_elem_t*)malloc((size_t)t * sizeof(gf_elem_t));
+    if (!prev || !next) { free(prev); free(next); return -1; }
+    memcpy(prev, &mat[1 * t], (size_t)t * sizeof(gf_elem_t));
+    for (int r = 2; r <= t; r++) {
+        gf_vec_mul(next, prev, f, t);
+        memcpy(&mat[r * t], next, (size_t)t * sizeof(gf_elem_t));
+        gf_elem_t *tmp = prev; prev = next; next = tmp;
     }
-    free(block);
+    free(prev); free(next);
+    return 0;
 }
 
 // Gaussian elimination over F2 on (n x n) matrix A with rhs b; both use 0/1 bytes
-static int gauss_binary(unsigned char *A, unsigned char *b, int n) {
-    int row = 0;
-    for (int col = 0; col < n && row < n; col++) {
-        int piv = -1;
-        for (int r = row; r < n; r++) {
-            if (A[r * n + col]) { piv = r; break; }
-        }
-        if (piv == -1) continue; // free variable; acceptable for our case
-        if (piv != row) {
-            for (int c = col; c < n; c++) {
-                unsigned char tmp = A[row * n + c];
-                A[row * n + c] = A[piv * n + c];
-                A[piv * n + c] = tmp;
-            }
-            unsigned char tb = b[row]; b[row] = b[piv]; b[piv] = tb;
-        }
-        for (int r = 0; r < n; r++) {
-            if (r == row) continue;
-            if (A[r * n + col]) {
-                for (int c = col; c < n; c++) A[r * n + c] ^= A[row * n + c];
-                b[r] ^= b[row];
+// Solve for connection polynomial via GF(2^m) elimination
+// mat is (t+1) x t; we perform in-place operations akin to reference
+static int solve_connection_poly(gf_elem_t *mat, int t) {
+    for (int j = 0; j < t; j++) {
+        for (int k = j + 1; k < t; k++) {
+            if (mat[j * t + j] == 0) {
+                for (int r = j; r <= t; r++) mat[r * t + j] ^= mat[r * t + k];
             }
         }
-        row++;
+        if (mat[j * t + j] == 0) return -1;
+        gf_elem_t inv = gf_pow(mat[j * t + j], MCELIECE_Q - 2);
+        for (int r = j; r <= t; r++) mat[r * t + j] = gf_mul(mat[r * t + j], inv);
+        for (int k = 0; k < t; k++) if (k != j) {
+            gf_elem_t tmp = mat[j * t + k];
+            for (int r = j; r <= t; r++) mat[r * t + k] ^= gf_mul(mat[r * t + j], tmp);
+        }
     }
     return 0;
 }
 
 // Extract solution vector x of length (m*t) from reduced A,b (assumes near-RREF)
-static void back_solve_binary(const unsigned char *A, const unsigned char *b, int n,
-                              unsigned char *x) {
-    memset(x, 0, n);
-    // simple back substitution for upper-triangular pattern
-    for (int i = n - 1; i >= 0; i--) {
-        int sum = b[i];
-        int pivot_col = -1;
-        for (int j = 0; j < n; j++) {
-            if (A[i * n + j]) { pivot_col = j; break; }
-        }
-        if (pivot_col == -1) continue;
-        for (int j = pivot_col + 1; j < n; j++) {
-            if (A[i * n + j] && x[j]) sum ^= 1;
-        }
-        x[pivot_col] = (unsigned char)(sum & 1);
-    }
-}
+// Nothing needed: coefficients are extracted directly once matrix is reduced
 
 // Pack x (m*t bits) into g_lower[t] over GF(2^m), diagonal-basis mapping
-static void pack_solution_to_g(const unsigned char *x, int m, int t, gf_elem_t *g_lower) {
-    for (int i = 0; i < t; i++) g_lower[i] = 0;
-    for (int cg = 0; cg < t; cg++) {
-        gf_elem_t acc = 0;
-        for (int bit = 0; bit < m; bit++) {
-            int col = cg * m + bit;
-            acc |= ((gf_elem_t)(x[col] & 1) << bit);
-        }
-        g_lower[cg] = acc;
-    }
-}
+// Not used in compact GF elimination path
 
 int genpoly_gen(gf_elem_t *out, const gf_elem_t *f) {
+    gf_init();
     const int t = MCELIECE_T;
-    const int m = MCELIECE_M;
 
-    // 1) Build columns v0..v_{t-1} and compute v_t
-    gf_elem_t *cols = (gf_elem_t*)malloc(sizeof(gf_elem_t) * t * t);
-    if (!cols) return -1;
-    if (build_Krylov_columns(f, t, cols) != 0) { free(cols); return -1; }
+    // Allocate (t+1) x t matrix in row-major: row r, col c at mat[r*t + c]
+    gf_elem_t *mat = (gf_elem_t*)malloc((size_t)(t + 1) * (size_t)t * sizeof(gf_elem_t));
+    if (!mat) return -1;
 
-    gf_elem_t *vt = (gf_elem_t*)malloc(sizeof(gf_elem_t) * t);
-    if (!vt) { free(cols); return -1; }
-    // vt = v_{t-1} * f
-    for (int i = 0; i < t; i++) {
-        gf_elem_t acc = 0;
-        for (int j = 0; j <= i; j++) acc = gf_add(acc, gf_mul(cols[(t - 1) * t + j], f[i - j]));
-        vt[i] = acc;
+    // mat[0][:] = [1, 0, ..., 0]
+    for (int i = 0; i < t; i++) mat[0 * t + i] = (i == 0) ? 1 : 0;
+    // mat[1][:] = f
+    memcpy(&mat[1 * t], f, (size_t)t * sizeof(gf_elem_t));
+    // mat[2]..mat[t] by polynomial multiplication truncated to degree < t
+    for (int r = 2; r <= t; r++) {
+        gf_vec_mul(&mat[r * t], &mat[(r - 1) * t], f, t);
     }
 
-    // 2) Expand to binary system and solve
-    int nbin = m * t;
-    unsigned char *A = (unsigned char*)malloc((size_t)nbin * (size_t)nbin);
-    unsigned char *b = (unsigned char*)malloc((size_t)nbin);
-    unsigned char *x = (unsigned char*)malloc((size_t)nbin);
-    if (!A || !b || !x) { if (A) free(A); if (b) free(b); if (x) free(x); free(cols); free(vt); return -1; }
+    if (dbg_enabled_us() || (getenv("MCELIECE_DEBUG_GENPOLY") && getenv("MCELIECE_DEBUG_GENPOLY")[0] == '1')) {
+        for (int r = 0; r < 4 && r <= t; r++) {
+            printf("[genpoly] mat[%d][:] (first 32): ", r);
+            for (int i = 0; i < t && i < 32; i++) {
+                printf("%04X%s", (unsigned)mat[r * t + i], (i+1)%16==0?"\n":" ");
+            }
+            if ((t < 32) && (t % 16 != 0)) printf("\n");
+        }
+        fflush(stdout);
+    }
 
-    expand_to_binary_system(cols, vt, m, t, A, b);
-    gauss_binary(A, b, nbin);
-    back_solve_binary(A, b, nbin, x);
+    // Reference-style elimination on columns using mask-based pivot fix
+    if (dbg_enabled_us() || (getenv("MCELIECE_DEBUG_GENPOLY") && getenv("MCELIECE_DEBUG_GENPOLY")[0] == '1')) {
+        printf("[genpoly] row t BEFORE elim: ");
+        for (int i = 0; i < t; i++) {
+            printf("%04X%s", (unsigned)mat[t * t + i], (i+1)%16==0?"\n":" ");
+        }
+        if (t % 16 != 0) printf("\n");
+        fflush(stdout);
+    }
+    for (int j = 0; j < t; j++) {
+        if (dbg_enabled_us() || (getenv("MCELIECE_DEBUG_GENPOLY") && getenv("MCELIECE_DEBUG_GENPOLY")[0] == '1')) {
+            printf("[genpoly] BEFORE pivot j=%d: diag=%04X\n", j, (unsigned)mat[j * t + j]);
+            printf("[genpoly] row t: ");
+            for (int i = 0; i < t; i++) {
+                printf("%04X%s", (unsigned)mat[t * t + i], (i+1)%16==0?"\n":" ");
+            }
+            if (t % 16 != 0) printf("\n");
+            fflush(stdout);
+        }
+        for (int k = j + 1; k < t; k++) {
+            gf_elem_t mask = (mat[j * t + j] == 0) ? (gf_elem_t)0xFFFF : (gf_elem_t)0x0000;
+            for (int r = j; r <= t; r++) {
+                mat[r * t + j] ^= (gf_elem_t)(mat[r * t + k] & mask);
+            }
+        }
+        if (mat[j * t + j] == 0) { free(mat); return -1; }
+        gf_elem_t inv = gf_inv(mat[j * t + j]);
+        for (int r = j; r <= t; r++) mat[r * t + j] = gf_mul(mat[r * t + j], inv);
+        for (int k = 0; k < t; k++) if (k != j) {
+            gf_elem_t tk = mat[j * t + k];
+            for (int r = j; r <= t; r++) mat[r * t + k] ^= gf_mul(mat[r * t + j], tk);
+        }
+        if (dbg_enabled_us() || (getenv("MCELIECE_DEBUG_GENPOLY") && getenv("MCELIECE_DEBUG_GENPOLY")[0] == '1')) {
+            printf("[genpoly] AFTER pivot j=%d: diag=%04X\n", j, (unsigned)mat[j * t + j]);
+            printf("[genpoly] row t: ");
+            for (int i = 0; i < t; i++) {
+                printf("%04X%s", (unsigned)mat[t * t + i], (i+1)%16==0?"\n":" ");
+            }
+            if (t % 16 != 0) printf("\n");
+            fflush(stdout);
+        }
+    }
 
-    // 3) Pack solution to out[] (degree t-1..0). Leading monic coef is implied outside
-    pack_solution_to_g(x, m, t, out);
-
-    free(A); free(b); free(x); free(cols); free(vt);
+    // Output last row as coefficients
+    for (int i = 0; i < t; i++) out[i] = mat[t * t + i];
+    free(mat);
     return 0;
 }
 

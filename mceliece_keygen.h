@@ -35,6 +35,16 @@ void private_key_free(private_key_t *sk);
 public_key_t* public_key_create(void);
 void public_key_free(public_key_t *pk);
 
+// Serialize public key T into a flat buffer with reference packing (MSB-first)
+// out length must be MCELIECE_PUBLICKEY_BYTES
+static inline int public_key_serialize_refpacking(const public_key_t *pk, uint8_t *out) {
+    if (!pk || !out) return -1;
+    int mt = pk->T.rows;
+    int out_row_bytes = pk->T.cols / 8;
+    if (mt != MCELIECE_M * MCELIECE_T || out_row_bytes != MCELIECE_K_BYTES) return -1;
+    return matrix_export_right_block_reference_packing(&pk->T, 0, out, out_row_bytes);
+}
+
 #ifdef __cplusplus
 }
 #endif

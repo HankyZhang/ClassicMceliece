@@ -2,6 +2,7 @@
   This file is for secret-key generation
 */
 
+#include "namespace_define.h"
 #include "sk_gen.h"
 
 #include "randombytes.h"

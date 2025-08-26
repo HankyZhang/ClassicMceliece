@@ -2,6 +2,7 @@
   This file is for loading/storing data in a little-endian fashion
 */
 
+#include "namespace_define.h"
 #include "util.h"
 
 #include "params.h"
