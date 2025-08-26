@@ -33,6 +33,10 @@ int reduce_to_systematic_form(matrix_t *H);
 // Variant that records row ops (U) and column permutation (perm)
 int reduce_to_systematic_form_record(matrix_t *H, matrix_t *U_out, int *perm_out);
 
+// Reference-style matrix operations (matching NIST implementation)
+int build_parity_check_matrix_reference_style(matrix_t *H, const polynomial_t *g, const gf_elem_t *support);
+int reduce_to_systematic_form_reference_style(matrix_t *H);
+
 // Matrix-vector operations
 void matrix_vector_multiply(const matrix_t *mat, const uint8_t *vec, uint8_t *result);
 // Invert a square binary matrix (GF(2)); returns 0 on success

@@ -110,16 +110,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         const uint8_t *field_ordering_bits_ptr = E + s_len_bytes;
         const uint8_t *irreducible_poly_bits_ptr = field_ordering_bits_ptr + field_ordering_len_bytes;
 
-        // 4. Generate support set alpha
-        if (generate_field_ordering(sk->alpha, field_ordering_bits_ptr) != MCELIECE_SUCCESS) {
-            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: generate_field_ordering failed (duplicates)\n", attempt+1);
-            memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
-            continue;
-        }
-        dbg_hex_us("field_ordering.bits.first256", field_ordering_bits_ptr, field_ordering_len_bytes, 256);
-        dbg_hex_us("alpha.first64", sk->alpha, MCELIECE_N * sizeof(gf_elem_t), 64*2);
-
-        // 5. Generate Goppa polynomial g
+        // 4. Generate Goppa polynomial g (match reference order: irr poly first)
         if (generate_irreducible_poly_final(&sk->g, irreducible_poly_bits_ptr) != MCELIECE_SUCCESS) {
             if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: generate_irreducible_poly_final failed\n", attempt+1);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
@@ -127,6 +118,15 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         }
         dbg_hex_us("irr.bits", irreducible_poly_bits_ptr, irreducible_poly_len_bytes, irreducible_poly_len_bytes);
         dbg_hex_us("g.coeffs.first64B", sk->g.coeffs, (sk->g.max_degree+1)*sizeof(gf_elem_t), 64);
+
+        // 5. Generate support set alpha (permutation/field ordering) after g
+        if (generate_field_ordering(sk->alpha, field_ordering_bits_ptr) != MCELIECE_SUCCESS) {
+            if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: generate_field_ordering failed (duplicates)\n", attempt+1);
+            memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
+            continue;
+        }
+        dbg_hex_us("field_ordering.bits.first256", field_ordering_bits_ptr, field_ordering_len_bytes, 256);
+        dbg_hex_us("alpha.first64", sk->alpha, MCELIECE_N * sizeof(gf_elem_t), 64*2);
 
         // Ensure alpha is a support set for g (no roots of g)
         int is_support_set = 1;

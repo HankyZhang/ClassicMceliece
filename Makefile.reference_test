@@ -1,0 +1,60 @@
+# Makefile for Reference Implementation Integration Test
+# 
+# This compiles the enhanced compare_steps_1_5.c with reference implementation
+
+CC = gcc
+CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+INCLUDES = -I. -Imceliece6688128/
+
+# Define crypto namespace to avoid conflicts
+DEFINES = -DCRYPTO_NAMESPACE(x)=ref_##x
+
+# Our implementation sources
+OUR_SOURCES = \
+    mceliece_keygen.c \
+    mceliece_shake.c \
+    mceliece_gf.c \
+    mceliece_poly.c \
+    mceliece_matrix_ops.c \
+    mceliece_genpoly.c \
+    reference_shake.c
+
+# Reference implementation sources (required ones)
+REF_SOURCES = \
+    mceliece6688128/sk_gen.c \
+    mceliece6688128/pk_gen.c \
+    mceliece6688128/gf.c \
+    mceliece6688128/benes.c \
+    mceliece6688128/controlbits.c \
+    mceliece6688128/uint64_sort.c \
+    mceliece6688128/root.c \
+    mceliece6688128/util.c \
+    mceliece6688128/crypto_declassify.c
+
+# Test source
+TEST_SOURCE = compare_steps_1_5.c
+
+# Output executable
+TARGET = test_reference_integration
+
+# Build rule
+$(TARGET): $(OUR_SOURCES) $(REF_SOURCES) $(TEST_SOURCE)
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -o $@ $^ -lm
+
+# Clean rule
+clean:
+	rm -f $(TARGET)
+
+# Run test
+test: $(TARGET)
+	./$(TARGET)
+
+# Help
+help:
+	@echo "Available targets:"
+	@echo "  $(TARGET)  - Build the test executable"
+	@echo "  test       - Build and run the test"
+	@echo "  clean      - Remove built files"
+	@echo "  help       - Show this help"
+
+.PHONY: clean test help

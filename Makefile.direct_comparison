@@ -1,0 +1,62 @@
+# Makefile for Direct Comparison Test
+# Shows exact numerical outputs side-by-side
+
+CC = gcc
+CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+INCLUDES = -I. -Imceliece6688128/
+
+# Define crypto namespace to avoid conflicts
+DEFINES = -DCRYPTO_NAMESPACE\(x\)=ref_\#\#x
+
+# Our implementation sources
+OUR_SOURCES = \
+    mceliece_keygen.c \
+    mceliece_shake.c \
+    mceliece_gf.c \
+    mceliece_poly.c \
+    mceliece_matrix_ops.c \
+    mceliece_genpoly.c \
+    reference_shake.c
+
+# Reference implementation sources (minimal required)
+REF_SOURCES = \
+    mceliece6688128/sk_gen.c \
+    mceliece6688128/pk_gen.c \
+    mceliece6688128/gf.c \
+    mceliece6688128/util.c \
+    mceliece6688128/crypto_declassify.c
+
+# Test source
+TEST_SOURCE = direct_comparison_test.c
+
+# Output executable
+TARGET = direct_comparison_test
+
+# Build rule
+$(TARGET): $(OUR_SOURCES) $(REF_SOURCES) $(TEST_SOURCE)
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -o $@ $^ -lm
+
+# Clean rule
+clean:
+	rm -f $(TARGET)
+
+# Run test
+test: $(TARGET)
+	./$(TARGET)
+
+# Help
+help:
+	@echo "Direct Comparison Test - Shows exact numerical outputs"
+	@echo ""
+	@echo "Available targets:"
+	@echo "  $(TARGET)  - Build the direct comparison test"
+	@echo "  test       - Build and run the comparison test"
+	@echo "  clean      - Remove built files"
+	@echo "  help       - Show this help"
+	@echo ""
+	@echo "This test will show:"
+	@echo "  - Side-by-side coefficient comparisons"
+	@echo "  - Exact alpha value comparisons"
+	@echo "  - Detailed mismatch reporting"
+
+.PHONY: clean test help
