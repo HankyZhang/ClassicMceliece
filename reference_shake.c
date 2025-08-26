@@ -1,7 +1,4 @@
 /*
-Reference FIPS202 SHAKE256 implementation for McEliece
-Based on the official Keccak Team implementation
-
 Implementation by the Keccak Team, namely, Guido Bertoni, Joan Daemen,
 Michaël Peeters, Gilles Van Assche and Ronny Van Keer,
 hereby denoted as "the implementer".
@@ -14,11 +11,84 @@ and related or neighboring rights to the source code in this file.
 http://creativecommons.org/publicdomain/zero/1.0/
 */
 
-#include "mceliece_shake.h"
+/*
+================================================================
+The purpose of this source file is to demonstrate a readable and compact
+implementation of all the Keccak instances approved in the FIPS 202 standard,
+including the hash functions and the extendable-output functions (XOFs).
+
+We focused on clarity and on source-code compactness,
+rather than on the performance.
+
+The advantages of this implementation are:
+    + The source code is compact, after removing the comments, that is. :-)
+    + There are no tables with arbitrary constants.
+    + For clarity, the comments link the operations to the specifications using
+        the same notation as much as possible.
+    + There is no restriction in cryptographic features. In particular,
+        the SHAKE128 and SHAKE256 XOFs can produce any output length.
+    + The code does not use much RAM, as all operations are done in place.
+
+The drawbacks of this implementation are:
+    - There is no message queue. The whole message must be ready in a buffer.
+    - It is not optimized for performance.
+
+The implementation is even simpler on a little endian platform. Just define the
+LITTLE_ENDIAN symbol in that case.
+
+For a more complete set of implementations, please refer to
+the Keccak Code Package at https://github.com/gvanas/KeccakCodePackage
+
+For more information, please refer to:
+    * [Keccak Reference] https://keccak.team/files/Keccak-reference-3.0.pdf
+    * [Keccak Specifications Summary] https://keccak.team/keccak_specs_summary.html
+
+This file uses UTF-8 encoding, as some comments use Greek letters.
+================================================================
+*/
+
+#include "reference_shake.h"
 #include <stdint.h>
 #include <string.h>
 
-// Reference FIPS202 implementation - self-contained
+/**
+  * Function to compute the Keccak[r, c] sponge function over a given input.
+  * @param  rate            The value of the rate r.
+  * @param  capacity        The value of the capacity c.
+  * @param  input           Pointer to the input message.
+  * @param  inputByteLen    The number of input bytes provided in the input message.
+  * @param  delimitedSuffix Bits that will be automatically appended to the end
+  *                         of the input message, as in domain separation.
+  *                         This is a byte containing from 0 to 7 bits
+  *                         These <i>n</i> bits must be in the least significant bit positions
+  *                         and must be delimited with a bit 1 at position <i>n</i>
+  *                         (counting from 0=LSB to 7=MSB) and followed by bits 0
+  *                         from position <i>n</i>+1 to position 7.
+  *                         Some examples:
+  *                             - If no bits are to be appended, then @a delimitedSuffix must be 0x01.
+  *                             - If the 2-bit sequence 0,1 is to be appended (as for SHA3-*), @a delimitedSuffix must be 0x06.
+  *                             - If the 4-bit sequence 1,1,1,1 is to be appended (as for SHAKE*), @a delimitedSuffix must be 0x1F.
+  *                             - If the 7-bit sequence 1,1,0,1,0,0,0 is to be absorbed, @a delimitedSuffix must be 0x8B.
+  * @param  output          Pointer to the buffer where to store the output.
+  * @param  outputByteLen   The number of output bytes desired.
+  * @pre    One must have r+c=1600 and the rate a multiple of 8 bits in this implementation.
+  */
+static void Keccak_ref(unsigned int rate, unsigned int capacity, const unsigned char *input, unsigned long long int inputByteLen, unsigned char delimitedSuffix, unsigned char *output, unsigned long long int outputByteLen);
+
+/**
+  *  Function to compute SHAKE256 on the input message with any output length.
+  */
+static void FIPS202_SHAKE256_ref(const unsigned char *input, unsigned int inputByteLen, unsigned char *output, int outputByteLen)
+{
+    Keccak_ref(1088, 512, input, inputByteLen, 0x1F, output, outputByteLen);
+}
+
+/*
+================================================================
+Technicalities
+================================================================
+*/
+
 typedef uint64_t tKeccakLane;
 
 #ifndef LITTLE_ENDIAN
@@ -87,7 +157,7 @@ A readable and compact implementation of the Keccak-f[1600] permutation.
   * Function that computes the linear feedback shift register (LFSR) used to
   * define the round constants (see [Keccak Reference, Section 1.2]).
   */
-int LFSR86540(uint8_t *LFSR)
+static int LFSR86540_ref(uint8_t *LFSR)
 {
     int result = ((*LFSR) & 0x01) != 0;
     if (((*LFSR) & 0x80) != 0)
@@ -101,7 +171,7 @@ int LFSR86540(uint8_t *LFSR)
 /**
  * Function that computes the Keccak-f[1600] permutation on the given state.
  */
-void KeccakF1600_StatePermute(void *state)
+static void KeccakF1600_StatePermute_ref(void *state)
 {
     unsigned int round, x, y, j, t;
     uint8_t LFSRstate = 0x01;
@@ -153,7 +223,7 @@ void KeccakF1600_StatePermute(void *state)
         {   /* ι step (see [Keccak Reference, Section 2.3.5]) */
             for(j=0; j<7; j++) {
                 unsigned int bitPosition = (1<<j)-1; /* 2^j-1 */
-                if (LFSR86540(&LFSRstate) && (bitPosition < 64))
+                if (LFSR86540_ref(&LFSRstate) && (bitPosition < 64))
                     XORLane(0, 0, (tKeccakLane)1<<bitPosition);
             }
         }
@@ -166,7 +236,7 @@ A readable and compact implementation of the Keccak sponge functions.
 ================================================================
 */
 
-void Keccak(unsigned int rate, unsigned int capacity, const unsigned char *input, unsigned long long int inputByteLen, unsigned char delimitedSuffix, unsigned char *output, unsigned long long int outputByteLen)
+static void Keccak_ref(unsigned int rate, unsigned int capacity, const unsigned char *input, unsigned long long int inputByteLen, unsigned char delimitedSuffix, unsigned char *output, unsigned long long int outputByteLen)
 {
     uint8_t state[200];
     unsigned int rateInBytes = rate/8;
@@ -189,7 +259,7 @@ void Keccak(unsigned int rate, unsigned int capacity, const unsigned char *input
         inputByteLen -= blockSize;
 
         if (blockSize == rateInBytes) {
-            KeccakF1600_StatePermute(state);
+            KeccakF1600_StatePermute_ref(state);
             blockSize = 0;
         }
     }
@@ -198,11 +268,11 @@ void Keccak(unsigned int rate, unsigned int capacity, const unsigned char *input
     state[blockSize] ^= delimitedSuffix;
     /* If the first bit of padding is at position rate-1, we need a whole new block for the second bit of padding */
     if (((delimitedSuffix & 0x80) != 0) && (blockSize == (rateInBytes-1)))
-        KeccakF1600_StatePermute(state);
+        KeccakF1600_StatePermute_ref(state);
     /* Add the second bit of padding */
     state[rateInBytes-1] ^= 0x80;
     /* Switch to the squeezing phase */
-    KeccakF1600_StatePermute(state);
+    KeccakF1600_StatePermute_ref(state);
 
     /* === Squeezing phase === */
     /* Squeeze out all the output blocks */
@@ -213,61 +283,18 @@ void Keccak(unsigned int rate, unsigned int capacity, const unsigned char *input
         outputByteLen -= blockSize;
 
         if (outputByteLen > 0)
-            KeccakF1600_StatePermute(state);
+            KeccakF1600_StatePermute_ref(state);
     }
 }
 
-/**
-  *  Function to compute SHAKE256 on the input message with any output length.
-  */
-void FIPS202_SHAKE256(const unsigned char *input, unsigned int inputByteLen, unsigned char *output, int outputByteLen)
+// Public interface matching reference
+void SHAKE256_ref(unsigned char *output, size_t outputByteLen, const unsigned char *input, size_t inputByteLen)
 {
-    Keccak(1088, 512, input, inputByteLen, 0x1F, output, outputByteLen);
-}
-
-// ===== Public API Functions =====
-
-// High-level SHAKE256 function (maintains compatibility)
-void shake256(const uint8_t *input, size_t input_len, uint8_t *output, size_t output_len) {
-    FIPS202_SHAKE256(input, (unsigned int)input_len, output, (int)output_len);
+    FIPS202_SHAKE256_ref(input, (unsigned int)inputByteLen, output, (int)outputByteLen);
 }
 
 // McEliece PRG using reference SHAKE256
-void mceliece_prg(const uint8_t *seed, uint8_t *output, size_t output_len) {
-    shake256(seed, 32, output, output_len);
-}
-
-// McEliece hash function using reference SHAKE256  
-void mceliece_hash(uint8_t prefix, const uint8_t *input, size_t input_len, uint8_t *output) {
-    // Create input with prefix
-    uint8_t *prefixed_input = malloc(input_len + 1);
-    if (!prefixed_input) return;
-    
-    prefixed_input[0] = prefix;
-    memcpy(prefixed_input + 1, input, input_len);
-    
-    shake256(prefixed_input, input_len + 1, output, 32);
-    
-    free(prefixed_input);
-}
-
-// Legacy context-based functions (kept for compatibility, but simplified)
-void shake256_init(shake256_ctx *ctx) {
-    // Not used with direct Keccak implementation
-    (void)ctx; // Suppress unused warning
-}
-
-void shake256_absorb(shake256_ctx *ctx, const uint8_t *input, size_t len) {
-    // Not used with direct Keccak implementation  
-    (void)ctx; (void)input; (void)len; // Suppress unused warnings
-}
-
-void shake256_finalize(shake256_ctx *ctx) {
-    // Not used with direct Keccak implementation
-    (void)ctx; // Suppress unused warning
-}
-
-void shake256_squeeze(shake256_ctx *ctx, uint8_t *output, size_t len) {
-    // Not used with direct Keccak implementation
-    (void)ctx; (void)output; (void)len; // Suppress unused warnings
+void mceliece_prg_reference(const uint8_t *seed, uint8_t *output, size_t output_len)
+{
+    SHAKE256_ref(output, output_len, seed, 32);
 }

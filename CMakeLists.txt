@@ -54,4 +54,33 @@ if(UNIX)
     target_link_libraries(ClassicMceliece m)
 endif()
 
-# Additional targets can be added here as needed
+# Steps 1-5 Testing Targets
+
+# Early steps comparison test
+add_executable(compare_early_steps compare_early_steps.c mceliece_gf.c mceliece_shake.c mceliece_poly.c mceliece_matrix_ops.c mceliece_vector.c mceliece_keygen.c mceliece_encode.c mceliece_decode.c mceliece_kem.c mceliece_genpoly.c kat_drbg.c rng.c controlbits.c)
+target_include_directories(compare_early_steps PRIVATE .)
+if(UNIX)
+    target_link_libraries(compare_early_steps m)
+endif()
+
+# New SHAKE implementation test
+add_executable(test_new_shake test_new_shake.c mceliece_shake.c)
+target_include_directories(test_new_shake PRIVATE .)
+if(UNIX)
+    target_link_libraries(test_new_shake m)
+endif()
+
+# SHAKE implementation comparison test
+add_executable(test_shake_comparison test_shake_comparison.c mceliece_shake.c reference_shake.c)
+target_include_directories(test_shake_comparison PRIVATE .)
+if(UNIX)
+    target_link_libraries(test_shake_comparison m)
+endif()
+
+# Compare Steps 1-5 test
+add_executable(compare_steps_1_5 compare_steps_1_5.c mceliece_gf.c mceliece_shake.c reference_shake.c mceliece_poly.c mceliece_matrix_ops.c mceliece_vector.c mceliece_keygen.c mceliece_encode.c mceliece_decode.c mceliece_kem.c mceliece_genpoly.c kat_drbg.c rng.c controlbits.c)
+target_include_directories(compare_steps_1_5 PRIVATE .)
+if(UNIX)
+    target_link_libraries(compare_steps_1_5 m)
+endif()
+
