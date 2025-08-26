@@ -7,3 +7,7 @@ cmake-build-*/
 *.out
 *.rsp
 *.log
+
+# Test binaries
+/test_*
+!/test_*.c
