@@ -1,0 +1,51 @@
+# Makefile for Full KAT Comparison Test
+
+CC = gcc
+CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+INCLUDES = -I.
+
+# Sources needed for full KAT test
+SOURCES = \
+    mceliece_keygen.c \
+    mceliece_shake.c \
+    mceliece_gf.c \
+    mceliece_poly.c \
+    mceliece_matrix_ops.c \
+    mceliece_genpoly.c \
+    reference_shake.c \
+    mceliece_vector.c \
+    mceliece_decode.c \
+    mceliece_encode.c \
+    controlbits.c \
+    kat_drbg.c \
+    rng.c \
+    mceliece_kem.c \
+    full_kat_test.c
+
+# Output executable
+TARGET = full_kat_test
+
+# Build rule
+$(TARGET): $(SOURCES)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lm
+
+# Clean rule
+clean:
+	rm -f $(TARGET)
+
+# Run test with different numbers of test vectors
+test: $(TARGET)
+	./$(TARGET)
+
+test3: $(TARGET)
+	env MCELIECE_KAT_TESTS=3 ./$(TARGET)
+
+test10: $(TARGET)
+	env MCELIECE_KAT_TESTS=10 ./$(TARGET)
+
+# Quick test (just 1 vector)
+test1: $(TARGET)
+	env MCELIECE_KAT_TESTS=1 ./$(TARGET)
+
+.PHONY: clean test test1 test3 test10
+

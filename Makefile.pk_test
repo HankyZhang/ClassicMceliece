@@ -1,0 +1,40 @@
+# Makefile for Public Key Serialization Test
+
+CC = gcc
+CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+INCLUDES = -I.
+
+# Sources needed for public key serialization test
+SOURCES = \
+    mceliece_keygen.c \
+    mceliece_shake.c \
+    mceliece_gf.c \
+    mceliece_poly.c \
+    mceliece_matrix_ops.c \
+    mceliece_genpoly.c \
+    reference_shake.c \
+    mceliece_vector.c \
+    mceliece_decode.c \
+    mceliece_encode.c \
+    controlbits.c \
+    kat_drbg.c \
+    rng.c \
+    mceliece_kem.c \
+    test_pk_serialization.c
+
+# Output executable
+TARGET = test_pk_serialization
+
+# Build rule
+$(TARGET): $(SOURCES)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lm
+
+# Clean rule
+clean:
+	rm -f $(TARGET)
+
+# Run test
+test: $(TARGET)
+	./$(TARGET)
+
+.PHONY: clean test
