@@ -196,12 +196,13 @@ void cbits_pi_from_cbits(const uint8_t *cbits, long long w, long long n, int16_t
 }
 
 // Produce L[0..N-1] equal to support_gen in PQClean (bitrev of domain, then Benes, then extract low N indices)
-static inline uint16_t bitrev16_local(uint16_t x) {
-    x = (uint16_t)(((x & 0x5555u) << 1) | ((x >> 1) & 0x5555u));
-    x = (uint16_t)(((x & 0x3333u) << 2) | ((x >> 2) & 0x3333u));
-    x = (uint16_t)(((x & 0x0F0Fu) << 4) | ((x >> 4) & 0x0F0Fu));
-    x = (uint16_t)((x << 8) | (x >> 8));
-    return x;
+static inline uint16_t bitrev_m_local(uint16_t x, int m) {
+    // Reverse only the lower m bits of x
+    uint16_t r = 0;
+    for (int i = 0; i < m; i++) {
+        r = (uint16_t)((r << 1) | ((x >> i) & 1u));
+    }
+    return (uint16_t)(r & ((1u << m) - 1u));
 }
 
 void support_from_cbits(gf_elem_t *L, const uint8_t *cbits, long long w, int N) {
@@ -211,8 +212,8 @@ void support_from_cbits(gf_elem_t *L, const uint8_t *cbits, long long w, int N) 
     gf_elem_t *domain = (gf_elem_t*)malloc(sizeof(gf_elem_t) * (size_t)n);
     if (!domain) return;
     for (long long i = 0; i < n; i++) {
-        uint16_t br = bitrev16_local((uint16_t)i);
-        domain[i] = (gf_elem_t)(br & ((1U << w) - 1U));
+        uint16_t br = bitrev_m_local((uint16_t)i, (int)w);
+        domain[i] = (gf_elem_t)br;
     }
     // Apply layers to identity positions to get permutation indices
     int16_t *pi = (int16_t*)malloc(sizeof(int16_t) * (size_t)n);
