@@ -4,10 +4,10 @@
 
 CC = gcc
 CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
-INCLUDES = -I. -Imceliece6688128/
+INCLUDES = -I. -Imceliece6688128/ -Imceliece6688128/subroutines/
 
 # Define crypto namespace to avoid conflicts
-DEFINES = -DCRYPTO_NAMESPACE(x)=ref_##x
+DEFINES = -DCRYPTO_NAMESPACE\(x\)=ref_\#\#x -DENABLE_REFERENCE_TESTS=1
 
 # Our implementation sources
 OUR_SOURCES = \
@@ -17,7 +17,11 @@ OUR_SOURCES = \
     mceliece_poly.c \
     mceliece_matrix_ops.c \
     mceliece_genpoly.c \
-    reference_shake.c
+    mceliece_vector.c \
+    reference_shake.c \
+    kat_drbg.c \
+    rng.c \
+    controlbits.c
 
 # Reference implementation sources (required ones)
 REF_SOURCES = \
@@ -26,34 +30,47 @@ REF_SOURCES = \
     mceliece6688128/gf.c \
     mceliece6688128/benes.c \
     mceliece6688128/controlbits.c \
-    mceliece6688128/uint64_sort.c \
     mceliece6688128/root.c \
     mceliece6688128/util.c \
-    mceliece6688128/crypto_declassify.c
+    mceliece6688128/transpose.c
 
 # Test source
-TEST_SOURCE = compare_steps_1_5.c
+TEST_SOURCE = test_robust_vs_ref_style.c
 
-# Output executable
+# Output executables
 TARGET = test_reference_integration
+COMPARE_TARGET = compare_steps_1_5
 
-# Build rule
+# Default target
+all: $(TARGET)
+
+# Build rule for test_reference_integration
 $(TARGET): $(OUR_SOURCES) $(REF_SOURCES) $(TEST_SOURCE)
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -o $@ $^ -lm
+
+# Build rule for compare_steps_1_5
+$(COMPARE_TARGET): $(OUR_SOURCES) $(REF_SOURCES) $(TEST_SOURCE)
 	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -o $@ $^ -lm
 
 # Clean rule
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(COMPARE_TARGET)
 
 # Run test
 test: $(TARGET)
 	./$(TARGET)
 
+# Run compare test
+compare: $(COMPARE_TARGET)
+	./$(COMPARE_TARGET)
+
 # Help
 help:
 	@echo "Available targets:"
 	@echo "  $(TARGET)  - Build the test executable"
+	@echo "  $(COMPARE_TARGET)  - Build the comparison executable"
 	@echo "  test       - Build and run the test"
+	@echo "  compare    - Build and run the comparison test"
 	@echo "  clean      - Remove built files"
 	@echo "  help       - Show this help"
 

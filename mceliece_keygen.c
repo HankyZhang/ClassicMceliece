@@ -32,6 +32,12 @@ int compare_pairs(const void *a, const void *b) {
     return 0;
 }
 
+static int g_last_seeded_key_gen_attempts = 0;
+
+int get_last_seeded_key_gen_attempts(void) {
+    return g_last_seeded_key_gen_attempts;
+}
+
 // SeededKeyGen算法
 mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_key_t *sk) {
     if (!delta || !pk || !sk) {
@@ -83,8 +89,12 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
     uint8_t *E = malloc(prg_output_len_bytes);
     if (!E) return MCELIECE_ERROR_MEMORY;
 
-    // 复制初始种子到私钥
-    memcpy(sk->delta, delta, delta_prime_len_bytes);
+    // 复制初始种子到私钥（非KAT使用）；KAT模式下用当前 DRBG 派生的 32 字节
+    if (kat_drbg_is_inited()) {
+        kat_get_delta(sk->delta);
+    } else {
+        memcpy(sk->delta, delta, delta_prime_len_bytes);
+    }
 
     int max_attempts = 50; // allow retries in both modes; in KAT, DRBG provides fresh bytes per attempt
     const char *env_max = getenv("MCELIECE_MAX_ATTEMPTS");
@@ -92,12 +102,18 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         int tmp = atoi(env_max);
         if (tmp > 0 && tmp <= 400) max_attempts = tmp;
     }
+    g_last_seeded_key_gen_attempts = 0;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         if (!kat_drbg_is_inited()) { printf("[keygen] attempt %d/%d...\n", attempt+1, max_attempts); fflush(stdout); }
         const char *env_debug = getenv("MCELIECE_DEBUG");
         int dbg_enabled = (!kat_drbg_is_inited()) && env_debug && env_debug[0] == '1';
-        // 1. Generate long random string E using internal PRG from delta.
-        //    In KAT mode we must NOT consume the global DRBG here to match PQClean.
+        // 1. Generate long random string E.
+        //    In KAT mode, expand exactly like reference via kat_expand_r (SHAKE with tail update).
+        //    Otherwise, derive from our PRG seeded with delta.
+        if (kat_drbg_is_inited()) {
+            uint8_t delta_prime[32];
+            kat_expand_r(E, prg_output_len_bytes, delta_prime);
+        } else {
             mceliece_prg(sk->delta, E, prg_output_len_bytes);
         }
         dbg_hex_us("seeded_key_gen.E.first256", E, prg_output_len_bytes, 256);
@@ -105,6 +121,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         // 2. Extract next retry seed delta' from the end of E
         uint8_t delta_prime[MCELIECE_L_BYTES];
         memcpy(delta_prime, E + prg_output_len_bytes - delta_prime_len_bytes, delta_prime_len_bytes);
+        // kat_expand_r already advanced the internal seed; nothing more to do
 
         // 3. Split E into parts (using byte offsets)
         const uint8_t *s_bits_ptr = E;
@@ -155,7 +172,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
-        if (dbg_enabled) { printf("[keygen] reducing H to systematic form...\n"); fflush(stdout); }
+        if (dbg_enabled) { printf("[keygen] reducing H to systematic form (strict ref walk)...\n"); fflush(stdout); }
         if (reduce_to_systematic_form_reference_style(Htmp) != 0) {
             if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form failed (singular)\n", attempt+1);
             matrix_free(Htmp);
@@ -250,6 +267,7 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         // sk->alpha remains the field-ordering support; controlbits provide permutation
 
         free(E);
+        g_last_seeded_key_gen_attempts = attempt + 1;
         return MCELIECE_SUCCESS;
     }
 

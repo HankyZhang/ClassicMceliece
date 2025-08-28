@@ -4,8 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mceliece_poly.h"
+// Build H using our GF operations only. Reference GF is used only in tracer.
 
 
+
+// No direct reference GF/API usage here; we call our gf_* which may bridge internally
 
 // 矩阵创建
 matrix_t* matrix_create(int rows, int cols) {
@@ -136,11 +139,18 @@ int build_parity_check_matrix_reference_style(matrix_t *H, const polynomial_t *g
     // inv[j] = 1 / g(support[j])
     gf_elem_t *inv = (gf_elem_t*)malloc((size_t)n * sizeof(gf_elem_t));
     if (!inv) return -1;
+
+    // Evaluate monic polynomial g at support using our gf_* (internally bridged to ref GF)
     for (int j = 0; j < n; j++) {
-        gf_elem_t a = support[j];
-        gf_elem_t r = polynomial_eval(g, a);
-        if (r == 0) { free(inv); return -1; }
-        inv[j] = gf_inv(r);
+        gf_elem_t a = (gf_elem_t)(support[j] & ((1u << m) - 1u));
+        // Evaluate monic polynomial: start at 1 (implicit leading coeff)
+        gf_elem_t val = 1;
+        for (int d = t - 1; d >= 0; d--) {
+            val = gf_mul(val, a);
+            val ^= (gf_elem_t)g->coeffs[d];
+        }
+        if (val == 0) { free(inv); return -1; }
+        inv[j] = gf_inv(val);
     }
 
     // Clear matrix
@@ -152,21 +162,20 @@ int build_parity_check_matrix_reference_style(matrix_t *H, const polynomial_t *g
             int block_len = (j + 8 <= n) ? 8 : (n - j);
             for (int k = 0; k < m; k++) {
                 unsigned char b = 0;
-                // Build byte from inv[j+7..j] bit k (left to right)
+                // Reference mapping: MSB=col j+7 ... LSB=col j (for partial block, highest index first)
                 for (int tbit = block_len - 1; tbit >= 0; tbit--) {
                     b <<= 1;
                     b |= (unsigned char)((inv[j + tbit] >> k) & 1);
                 }
                 int row = i * m + k;
-                // Write bits of b into columns j..j+block_len-1
-                for (int tcol = 0; tcol < block_len; tcol++) {
-                    int bit = (b >> (block_len - 1 - tcol)) & 1;
-                    matrix_set_bit(H, row, j + tcol, bit);
-                }
+                H->data[row * H->cols_bytes + (size_t)j/8] = b;
             }
         }
         // inv[j] *= support[j] for next power
-        for (int j = 0; j < n; j++) inv[j] = gf_mul(inv[j], support[j]);
+        for (int j = 0; j < n; j++) {
+            gf_elem_t a = (gf_elem_t)(support[j] & ((1u << m) - 1u));
+            inv[j] = gf_mul(inv[j], a);
+        }
     }
 
     free(inv);
@@ -229,8 +238,8 @@ int matrix_export_right_block_reference_packing(const matrix_t *H, int left_cols
         unsigned char *dst = out + r * out_row_bytes;
         for (int j = 0; j < right_cols; j += 8) {
             unsigned char b = 0;
-            // bit7 corresponds to column left_cols + j
-            for (int t = 0; t < 8; t++) {
+            // Match reference bit ordering: col j+7 -> bit7, col j+0 -> bit0
+            for (int t = 7; t >= 0; t--) {
                 int bit = matrix_get_bit(H, r, left_cols + j + t) & 1;
                 b <<= 1;
                 b |= (unsigned char)bit;
