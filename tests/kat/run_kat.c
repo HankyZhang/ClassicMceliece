@@ -1,10 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "mceliece_gf.h"
 
 // Provided by our KEM module
 void run_kat_file(const char *req_path, const char *rsp_path);
 
 int main(void) {
+#ifdef __cplusplus
+    extern "C" void gf_init(void);
+#endif
+    gf_init();
 #ifdef KAT_DATA_DIR
     const char *dir = KAT_DATA_DIR;
 #else

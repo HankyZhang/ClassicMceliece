@@ -96,4 +96,44 @@ ls -l our_kat_output.rsp
 - The reference folder `mceliece6688128/` is kept for context; KAT artifacts and `gf.c` were removed.
 - If you prefer a Makefile or CMake again, you can reintroduce one using the compile lines above.
 
+## Windows
+
+### Option 1: WSL (recommended)
+
+- Install WSL (Ubuntu), then run the same Linux commands from this README.
+- Build examples:
+
+```bash
+cc -O2 -Wall -Wextra -Isrc -Itools/call_runtime \
+  tools/call_runtime/call_graph_benchmark.c \
+  tools/call_runtime/function_profiler.c \
+  tools/call_runtime/hierarchical_profiler.c \
+  src/*.c -o call_graph_benchmark -lm
+
+cc -O2 -Wall -Wextra -Isrc \
+  tests/kat/run_kat.c src/*.c -o run_kat -lm
+```
+
+### Option 2: MSYS2/MinGW-w64 (native Windows)
+
+- Install MSYS2, open “MSYS2 MinGW x64” shell, then:
+
+```bash
+pacman -S --needed base-devel mingw-w64-x86_64-toolchain
+gcc -O2 -Wall -Wextra -Isrc -Itools/call_runtime \
+  tools/call_runtime/call_graph_benchmark.c \
+  tools/call_runtime/function_profiler.c \
+  tools/call_runtime/hierarchical_profiler.c \
+  src/*.c -o call_graph_benchmark -lm
+gcc -O2 -Wall -Wextra -Isrc \
+  tests/kat/run_kat.c src/*.c -o run_kat -lm
+```
+
+### Option 3: Visual Studio (MSVC)
+
+- Replace POSIX-specific pieces used by the runtime tool:
+  - `tools/call_runtime/function_profiler.h`: implement `get_time_ms()` with QueryPerformanceCounter under `_WIN32`.
+  - `tools/call_runtime/call_graph_benchmark.c`: replace `getopt`/`unistd.h` with a minimal argv parser or compile this tool under WSL/MSYS2.
+- Create a VS project, add all files from `src/` and the three sources in `tools/call_runtime/`, and set include paths to `src` and `tools/call_runtime`.
+
 
