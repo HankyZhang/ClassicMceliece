@@ -151,7 +151,9 @@ static void cbrecursion(unsigned char *out, long long pos, long long step,
     cbrecursion(out, pos + step, step * 2, q + n / 2, w - 1, n / 2, temp);
 }
 
+#include "hierarchical_profiler.h"
 void cbits_from_perm_ns(uint8_t *out, const int16 *pi, long long w, long long n) {
+    PROFILE_CBITS_FROM_PERM_START();
     int32 *temp = (int32*)malloc(sizeof(int32) * (size_t)(2 * n));
     if (!temp) return;
     memset(temp, 0, sizeof(int32) * (size_t)(2 * n));
@@ -178,6 +180,7 @@ void cbits_from_perm_ns(uint8_t *out, const int16 *pi, long long w, long long n)
         }
     }
     free(temp);
+    PROFILE_CBITS_FROM_PERM_END();
 }
 
 /* controlbits_from_alpha removed (unused). */

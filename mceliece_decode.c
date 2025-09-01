@@ -1,6 +1,7 @@
 
 #include "mceliece_decode.h"
 #include "controlbits.h"
+#include "hierarchical_profiler.h"
 
 
 // Calculate syndrome from a received vector r (reference-style, like mceliece6688128/synd.c)
@@ -8,6 +9,7 @@
 // Output: syndrome[0..2t-1]
 void compute_syndrome(const uint8_t *received, const polynomial_t *g,
                       const gf_elem_t *alpha, gf_elem_t *syndrome) {
+    PROFILE_COMPUTE_SYNDROME_START();
     if (!received || !g || !alpha || !syndrome) return;
     const char *env_debug = getenv("MCELIECE_DEBUG");
     int dbg_enabled = env_debug && env_debug[0] == '1';
@@ -35,6 +37,7 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
         }
         if (dbg_enabled && ((j & 7) == 7)) { printf("[decode] syndrome j=%d computed\n", j); fflush(stdout); }
     }
+    PROFILE_COMPUTE_SYNDROME_END();
 }
 
 
@@ -43,8 +46,11 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
 // Output: error locator polynomial sigma and error evaluator polynomial omega
 mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
                                   polynomial_t *sigma) {
+    PROFILE_BERLEKAMP_MASSEY_START();
     if (!syndrome || !sigma) {
-        return MCELIECE_ERROR_INVALID_PARAM;
+        mceliece_error_t _ret = MCELIECE_ERROR_INVALID_PARAM;
+        PROFILE_BERLEKAMP_MASSEY_END();
+        return _ret;
     }
     const char *env_debug = getenv("MCELIECE_DEBUG");
     int dbg_enabled = env_debug && env_debug[0] == '1';
@@ -124,6 +130,7 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
     polynomial_free(B);
     polynomial_free(T);
 
+    PROFILE_BERLEKAMP_MASSEY_END();
     return MCELIECE_SUCCESS;
 }
 
@@ -131,8 +138,11 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
 // Our BM produces a locator defined in terms of α_j^{-1}, so check σ(α_j^{-1}) = 0
 mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
                               int *error_positions, int *num_errors) {
+    PROFILE_CHIEN_SEARCH_START();
     if (!sigma || !alpha || !error_positions || !num_errors) {
-        return MCELIECE_ERROR_INVALID_PARAM;
+        mceliece_error_t _ret = MCELIECE_ERROR_INVALID_PARAM;
+        PROFILE_CHIEN_SEARCH_END();
+        return _ret;
     }
     const char *env_debug = getenv("MCELIECE_DEBUG");
     int dbg_enabled = env_debug && env_debug[0] == '1';
@@ -156,6 +166,7 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
     }
 
     if (dbg_enabled) { printf("[Chien] total errors=%d\n", *num_errors); fflush(stdout); }
+    PROFILE_CHIEN_SEARCH_END();
     return MCELIECE_SUCCESS;
 }
 
@@ -165,8 +176,11 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
 mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
                               const gf_elem_t *alpha, uint8_t *error_vector,
                               int *decode_success) {
+    PROFILE_DECODE_GOPPA_START();
     if (!received || !g || !alpha || !error_vector || !decode_success) {
-        return MCELIECE_ERROR_INVALID_PARAM;
+        mceliece_error_t _ret = MCELIECE_ERROR_INVALID_PARAM;
+        PROFILE_DECODE_GOPPA_END();
+        return _ret;
     }
 
     *decode_success = 0;
@@ -191,6 +205,7 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
         memset(error_vector, 0, MCELIECE_N_BYTES);
         *decode_success = 1;
         free(syndrome);
+        PROFILE_DECODE_GOPPA_END();
         return MCELIECE_SUCCESS;
     }
 
@@ -210,6 +225,7 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
         free(syndrome);
         polynomial_free(sigma);
         polynomial_free(omega);
+        PROFILE_DECODE_GOPPA_END();
         return ret;
     }
 
@@ -246,6 +262,7 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
             free(syndrome);
             polynomial_free(sigma);
             free(error_positions);
+            PROFILE_DECODE_GOPPA_END();
             return MCELIECE_SUCCESS;
         }
     }
@@ -273,6 +290,7 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
     polynomial_free(sigma);
     free(error_positions);
 
+    PROFILE_DECODE_GOPPA_END();
     return MCELIECE_SUCCESS;
 }
 

@@ -1,5 +1,6 @@
 #include "mceliece_encode.h"
 #include "mceliece_matrix_ops.h"
+#include "hierarchical_profiler.h"
 #include <time.h>
 #include <stdio.h>
 
@@ -97,6 +98,7 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
 
 // Encode算法：C = He，其中H = (I_mt | T)
 void encode_vector(const uint8_t *error_vector, const matrix_t *T, uint8_t *ciphertext) {
+    PROFILE_ENCODE_VECTOR_START();
     if (!error_vector || !T || !ciphertext) return;
 
     int mt = MCELIECE_M * MCELIECE_T;
@@ -132,6 +134,7 @@ void encode_vector(const uint8_t *error_vector, const matrix_t *T, uint8_t *ciph
             vector_set_bit(ciphertext, row, current_bit ^ 1);
         }
     }
+    PROFILE_ENCODE_VECTOR_END();
 }
 
 

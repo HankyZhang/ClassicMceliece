@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mceliece_poly.h"
+#include "hierarchical_profiler.h"
 // Build H using our GF operations only. Reference GF is used only in tracer.
 
 
@@ -130,6 +131,7 @@ int reduce_to_systematic_form(matrix_t *H) {
 // as the reference path: rows are grouped by bit position (k in 0..GFBITS-1)
 // within each power i in 0..T-1; columns are packed 8-at-a-time into bytes.
 int build_parity_check_matrix_reference_style(matrix_t *H, const polynomial_t *g, const gf_elem_t *support) {
+    PROFILE_BUILD_PARITY_CHECK_MATRIX_START();
     if (!H || !g || !support) return -1;
     const int t = MCELIECE_T;
     const int m = MCELIECE_M;
@@ -179,12 +181,14 @@ int build_parity_check_matrix_reference_style(matrix_t *H, const polynomial_t *g
     }
 
     free(inv);
+    PROFILE_BUILD_PARITY_CHECK_MATRIX_END();
     return 0;
 }
 
 // Perform the byte/bit-ordered elimination that assumes a fixed pivot walk
 // through the left mt x mt identity block without column swaps.
 int reduce_to_systematic_form_reference_style(matrix_t *H) {
+    PROFILE_REDUCE_TO_SYSTEMATIC_FORM_START();
     if (!H) return -1;
     const int mt = H->rows;
     const int left_bytes = (mt + 7) / 8;
@@ -221,6 +225,7 @@ int reduce_to_systematic_form_reference_style(matrix_t *H) {
             }
         }
     }
+    PROFILE_REDUCE_TO_SYSTEMATIC_FORM_END();
     return 0;
 }
 

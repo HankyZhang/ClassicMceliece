@@ -4,6 +4,7 @@
 #include "mceliece_kem.h"
 #include "controlbits.h"
 #include "debuglog.h"
+#include "hierarchical_profiler.h"
 
 // reverses the order of the m least significant bits of a 16-bit unsigned integer x.
 static inline uint16_t bitrev_m_u16(uint16_t x, int m) {
@@ -40,8 +41,11 @@ int get_last_seeded_key_gen_attempts(void) {
 
 // SeededKeyGen算法
 mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_key_t *sk) {
+    PROFILE_SEEDED_KEY_GEN_START();
     if (!delta || !pk || !sk) {
-        return MCELIECE_ERROR_INVALID_PARAM;
+        mceliece_error_t _ret_err = MCELIECE_ERROR_INVALID_PARAM;
+        PROFILE_SEEDED_KEY_GEN_END();
+        return _ret_err;
     }
 
     int n_bits = MCELIECE_N; // n=6688
@@ -111,8 +115,10 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         //    In KAT mode, expand exactly like reference via kat_expand_r (SHAKE with tail update).
         //    Otherwise, derive from our PRG seeded with delta.
         if (kat_drbg_is_inited()) {
+            PROFILE_KAT_EXPAND_R_START();
             uint8_t delta_prime[32];
             kat_expand_r(E, prg_output_len_bytes, delta_prime);
+            PROFILE_KAT_EXPAND_R_END();
         } else {
             mceliece_prg(sk->delta, E, prg_output_len_bytes);
         }
@@ -166,14 +172,20 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
         matrix_t *Htmp = matrix_create(mt, n);
         if (!Htmp) { if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: matrix_create Htmp failed\n", attempt+1); memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES); continue; }
         if (dbg_enabled) { printf("[keygen] building H (reference-style packing): %d x %d\n", mt, n); fflush(stdout); }
-        if (build_parity_check_matrix_reference_style(Htmp, &sk->g, sk->alpha) != 0) {
+        PROFILE_BUILD_PARITY_CHECK_MATRIX_START();
+        int _build_ret = build_parity_check_matrix_reference_style(Htmp, &sk->g, sk->alpha);
+        PROFILE_BUILD_PARITY_CHECK_MATRIX_END();
+        if (_build_ret != 0) {
             if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: build_parity_check_matrix_reference_style failed\n", attempt+1);
             matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
             continue;
         }
         if (dbg_enabled) { printf("[keygen] reducing H to systematic form (strict ref walk)...\n"); fflush(stdout); }
-        if (reduce_to_systematic_form_reference_style(Htmp) != 0) {
+        PROFILE_REDUCE_TO_SYSTEMATIC_FORM_START();
+        int _sys_ret = reduce_to_systematic_form_reference_style(Htmp);
+        PROFILE_REDUCE_TO_SYSTEMATIC_FORM_END();
+        if (_sys_ret != 0) {
             if (!kat_drbg_is_inited()) printf("[keygen] attempt %d: reduce_to_systematic_form failed (singular)\n", attempt+1);
             matrix_free(Htmp);
             memcpy(sk->delta, delta_prime, MCELIECE_L_BYTES);
@@ -234,7 +246,9 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
                 return MCELIECE_ERROR_MEMORY; 
             }
             memset(sk->controlbits, 0, cb_len);
+            PROFILE_CBITS_FROM_PERM_START();
             cbits_from_perm_ns(sk->controlbits, pi, m, n_full);
+            PROFILE_CBITS_FROM_PERM_END();
             sk->controlbits_len = cb_len;
             free(pi);
             if (dbg_enabled) { printf("[keygen] controlbits ready: %zu bytes\n", (size_t)cb_len); fflush(stdout); }
@@ -268,17 +282,20 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
 
         free(E);
         g_last_seeded_key_gen_attempts = attempt + 1;
+        PROFILE_SEEDED_KEY_GEN_END();
         return MCELIECE_SUCCESS;
     }
 
     // Reached maximum attempts, generation failed
     free(E);
+    PROFILE_SEEDED_KEY_GEN_END();
     return MCELIECE_ERROR_KEYGEN_FAIL;
 }
 
 
 
 mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random_bits) {
+    PROFILE_GENERATE_FIELD_ORDERING_START();
     int q = MCELIECE_Q;
     int m = MCELIECE_M;
     int sigma2_bits = 32;
@@ -288,7 +305,9 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 
     pair_t *pairs = malloc(q * sizeof(pair_t));
     if (!pairs) {
-        return MCELIECE_ERROR_MEMORY;
+        mceliece_error_t _ret = MCELIECE_ERROR_MEMORY;
+        PROFILE_GENERATE_FIELD_ORDERING_END();
+        return _ret;
     }
 
     // 1. 从随机比特生成 q 个 32-bit 的整数 a_i (小端序，参考实现常见打包)
@@ -304,7 +323,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 
     // 2. Check for duplicate values
     pair_t *sorted_for_check = malloc(q * sizeof(pair_t));
-    if (!sorted_for_check) { free(pairs); return MCELIECE_ERROR_MEMORY; }
+    if (!sorted_for_check) { free(pairs); PROFILE_GENERATE_FIELD_ORDERING_END(); return MCELIECE_ERROR_MEMORY; }
     memcpy(sorted_for_check, pairs, q * sizeof(pair_t));
     qsort(sorted_for_check, q, sizeof(pair_t), compare_pairs);
 
@@ -319,6 +338,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 
     if (has_duplicates) {
         free(pairs);
+        PROFILE_GENERATE_FIELD_ORDERING_END();
         return MCELIECE_ERROR_KEYGEN_FAIL;
     }
 
@@ -327,7 +347,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 
     // 4. 定义置换 pi，pi[i] 是排序后第 i 个元素的原始位置
     uint16_t *pi = malloc(q * sizeof(uint16_t));
-    if (!pi) { free(pairs); return MCELIECE_ERROR_MEMORY; }
+    if (!pi) { free(pairs); PROFILE_GENERATE_FIELD_ORDERING_END(); return MCELIECE_ERROR_MEMORY; }
     for(int i = 0; i < q; ++i) {
         pi[i] = pairs[i].pos;
     }
@@ -342,6 +362,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
     }
 
     free(pi);
+    PROFILE_GENERATE_FIELD_ORDERING_END();
     return MCELIECE_SUCCESS;
 }
 
@@ -349,6 +370,7 @@ mceliece_error_t generate_field_ordering(gf_elem_t *alpha, const uint8_t *random
 
 
 mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t *random_bits) {
+    PROFILE_GENERATE_IRREDUCIBLE_POLY_START();
     // Ensure GF tables are initialized before any gf_* operations
     gf_init();
     int t = MCELIECE_T;
@@ -360,7 +382,7 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
     // Reference-compatible packing: read t little-endian 16-bit values, mask to m bits
     // random_bits is expected to be 2*t bytes long for the poly section
     gf_elem_t *f = malloc(sizeof(gf_elem_t) * t);
-    if (!f) return MCELIECE_ERROR_MEMORY;
+    if (!f) { PROFILE_GENERATE_IRREDUCIBLE_POLY_END(); return MCELIECE_ERROR_MEMORY; }
     for (int i = 0; i < t; i++) {
         uint16_t le = (uint16_t)random_bits[2*i] | ((uint16_t)random_bits[2*i + 1] << 8);
         f[i] = (gf_elem_t)(le & ((1U << m) - 1U));
@@ -369,8 +391,8 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
 
     // Compute connection polynomial coefficients via genpoly_gen
     gf_elem_t *gl = malloc(sizeof(gf_elem_t) * t);
-    if (!gl) { free(f); return MCELIECE_ERROR_MEMORY; }
-    if (genpoly_gen(gl, f) != 0) { free(f); free(gl); return MCELIECE_ERROR_KEYGEN_FAIL; }
+    if (!gl) { free(f); PROFILE_GENERATE_IRREDUCIBLE_POLY_END(); return MCELIECE_ERROR_MEMORY; }
+    if (genpoly_gen(gl, f) != 0) { free(f); free(gl); PROFILE_GENERATE_IRREDUCIBLE_POLY_END(); return MCELIECE_ERROR_KEYGEN_FAIL; }
 
     // Form monic g(x) = x^t + sum_{i=0}^{t-1} gl[i] x^i
     for (int i = 0; i < t; i++) polynomial_set_coeff(g, i, gl[i]);
@@ -378,6 +400,7 @@ mceliece_error_t generate_irreducible_poly_final(polynomial_t *g, const uint8_t 
 
     free(f);
     free(gl);
+    PROFILE_GENERATE_IRREDUCIBLE_POLY_END();
     return MCELIECE_SUCCESS;
 }
 
