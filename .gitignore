@@ -28,3 +28,14 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Local binaries
+call_graph_benchmark
+run_kat
+ref_kat
+
+# Generated outputs
+*.rsp
+*.int
+*.csv
+*.log

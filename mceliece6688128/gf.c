@@ -2,7 +2,6 @@
   This file is for functions for field arithmetic
 */
 
-#include "namespace_define.h"
 #include "gf.h"
 
 #include "params.h"

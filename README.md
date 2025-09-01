@@ -1,125 +1,99 @@
-# Classic McEliece (mceliece6688128)
+# Classic McEliece (Organized)
 
-A working, readable implementation of Classic McEliece (parameter set mceliece6688128) with:
-- Our implementation (clean, instrumentable C)
-- Integrated reference components for cross-checking
-- Deterministic KAT generation and an “internal KAT” that verifies decoding by showing error positions
+This repository contains a clean, minimal layout of a Classic McEliece KEM implementation, a deterministic KAT runner, and a call-runtime profiling tool.
 
-This README shows how to build and run everything, including all available tests.
+## Repository layout
 
-## Requirements
-- clang or gcc (tested on macOS, clang)
-- make (for reference/integration tests)
+- `src/` – Complete implementation (self-contained, no external reference dependencies)
+- `tests/kat/` – KAT runner and sample request data
+  - `run_kat.c` – small driver that calls `run_kat_file()`
+  - `data/kat_kem.req` – request file for KAT tests
+- `tools/call_runtime/` – Call-graph runtime profiling tool
+- `mceliece6688128/` – Reference tree retained for documentation only (GF headers and other sources remain; KAT artifacts removed)
+- `iso-mceliece-20230419.pdf` – Parameter/spec reference
+- `Classic McEliece Algorithm Explained in Detail.md` – Implementation notes
 
-## Quick start (build CLI and run smoke tests)
+## Build
+
+This repo is intentionally minimal and does not include a top-level build system anymore. You can build the two executables directly with clang or gcc:
+
+### 1) Build the call-runtime tool
+
 ```bash
-# From repository root
-clang -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
-  -I. -Imceliece6688128/ -Imceliece6688128/subroutines/ \
-  -o mceliece \
-  main.c \
-  mceliece_keygen.c mceliece_shake.c mceliece_gf.c mceliece_poly.c \
-  mceliece_matrix_ops.c mceliece_genpoly.c reference_shake.c \
-  mceliece_vector.c mceliece_decode.c mceliece_encode.c controlbits.c \
-  kat_drbg.c rng.c mceliece_kem.c \
-  mceliece6688128/gf.c mceliece6688128/benes.c mceliece6688128/controlbits.c \
-  mceliece6688128/root.c mceliece6688128/util.c mceliece6688128/transpose.c \
-  -lm
-
-# See available commands
-./mceliece | cat
-
-# Round-trip test (encode+decode)
-./mceliece roundtrip | cat
-
-# Full decapsulation verification
-./mceliece decapfull | cat
+cc \
+  -O2 -Wall -Wextra \
+  -Isrc -Itools/call_runtime \
+  tools/call_runtime/call_graph_benchmark.c \
+  tools/call_runtime/function_profiler.c \
+  tools/call_runtime/hierarchical_profiler.c \
+  src/mceliece_gf.c src/mceliece_shake.c src/mceliece_poly.c \
+  src/mceliece_matrix_ops.c src/mceliece_vector.c src/mceliece_keygen.c \
+  src/mceliece_encode.c src/mceliece_decode.c src/mceliece_kem.c \
+  src/mceliece_genpoly.c src/kat_drbg.c src/rng.c src/controlbits.c \
+  -o call_graph_benchmark -lm
 ```
 
-## CLI commands (our implementation)
-Run `./mceliece` to see the menu. Common commands:
-- `./mceliece basic`: basic GF, vector, matrix, and polynomial checks
-- `./mceliece roundtrip`: generate e, compute C=H·e, decode, and compare with original e
-- `./mceliece decapfull`: verify that decapsulation recovers e and that C == H·e_rec
-- `./mceliece decapdbg`: prints BM/Chien stats and syndrome comparison for debugging
-- `./mceliece bmchien`: focused BM+Chien test
-- `./mceliece tamper`: flip bits in C and observe decap fallback behavior
-- `./mceliece tampswp`: tamper sweep across k=1..16 bit flips
-- `./mceliece seeded`: deterministic seeded keygen + roundtrip
-- `./mceliece keygen`: generate and display a key pair summary
-- `./mceliece demo`: end-to-end encapsulation/decapsulation demo
-- `./mceliece bench`: simple performance benchmark
-- `./mceliece cbtest`: verify Benes controlbits routing (sanity)
-- `./mceliece kat <req> <rsp>`: produce KAT response file from request
-- `./mceliece katint <req> <int>`: produce internal KAT file listing error positions
+Run (examples):
 
-## Debug env vars
-- `MCELIECE_DEBUG=1`: verbose decoding pipeline (syndrome, BM, Chien counts)
-- `MCELIECE_VERIFY_CB=1`: extra verification after computing controlbits (slower)
-
-Example:
 ```bash
-env MCELIECE_DEBUG=1 ./mceliece roundtrip | cat
+./call_graph_benchmark -n 1
+./call_graph_benchmark -n 3 -q
 ```
 
-## KAT (Known Answer Tests)
-Two flavors:
+### 2) Build the KAT runner
 
-1) Produce a KAT response file (rsp) from a req file (deterministic DRBG):
 ```bash
-# Wrapper
-./run_kat | cat
-# or directly via CLI
-./mceliece kat mceliece6688128/kat_kem.req our_kat_output.rsp | cat
-```
-- Input: `mceliece6688128/kat_kem.req`
-- Output: `our_kat_output.rsp` (contains `seed`, `pk`, `sk`, `ct`, `ss`)
-
-2) Internal KAT (.int) that shows error positions for encrypt/decrypt:
-```bash
-./mceliece katint mceliece6688128/kat_kem.req our_test.int | cat
-# our_test.int has lines: "encrypt e: positions ..." and "decrypt e: positions ..."
+cc \
+  -O2 -Wall -Wextra \
+  -Isrc \
+  tests/kat/run_kat.c \
+  src/mceliece_gf.c src/mceliece_shake.c src/mceliece_poly.c \
+  src/mceliece_matrix_ops.c src/mceliece_vector.c src/mceliece_keygen.c \
+  src/mceliece_encode.c src/mceliece_decode.c src/mceliece_kem.c \
+  src/mceliece_genpoly.c src/kat_drbg.c src/rng.c src/controlbits.c \
+  -o run_kat -lm
 ```
 
-## Reference-integration tests
-Build and run small programs that exercise our code + reference components.
+Run:
 
-### Reference integration comparison
 ```bash
-make -f Makefile.reference_test
-./test_reference_integration | cat
+./run_kat
+# Writes our_kat_output.rsp in the current directory
 ```
 
-### Direct comparison and dataflow tracer (optional)
+If you moved `tests/kat/data` elsewhere, pass explicit paths to `run_kat_file(req, rsp)` in `tests/kat/run_kat.c`.
+
+## Deterministic KAT testing
+
+- Source: `src/mceliece_kem.c` provides `run_kat_file(req, rsp)`.
+- Provided request file: `tests/kat/data/kat_kem.req`.
+- Output file: `our_kat_output.rsp`.
+
+The DRBG in `src/kat_drbg.c` is initialized per-seed lines from the request, ensuring deterministic output.
+
+## Implementation notes
+
+- GF arithmetic: `src/mceliece_gf.c` implements GF(2^13) using a polynomial-basis (irreducible poly `x^13 + x^4 + x^3 + x + 1`).
+- Hashing/PRG: `src/mceliece_shake.c` provides SHAKE256, `mceliece_prg`, and `mceliece_hash`.
+- Core KEM API:
+  - `mceliece_keygen`, `mceliece_encap`, `mceliece_decap` in `src/mceliece_kem.c`.
+- Matrices/vectors and Goppa operations are in `src/mceliece_matrix_ops.c`, `src/mceliece_vector.c`, `src/mceliece_poly.c`, `src/mceliece_decode.c`, `src/mceliece_encode.c`, and `src/mceliece_genpoly.c`.
+
+## Reproducing tests quickly
+
+- Quick call-runtime profiling:
 ```bash
-# Side-by-side numeric comparisons through keygen steps 1..5
-make -f Makefile.direct_comparison
-./direct_comparison_test | cat
-
-# Dataflow tracer (reads kat_kem.req and logs a detailed pipeline)
-make -f Makefile.direct_comparison TRACE_TARGET
-./dataflow_trace | cat
+./call_graph_benchmark -n 1
 ```
-Notes:
-- These use reference sources for comparison only; production usage uses our clean pipeline.
+- KAT generation:
+```bash
+./run_kat
+ls -l our_kat_output.rsp
+```
 
-## Reproducing typical workflows
-- Roundtrip: `./mceliece roundtrip | cat`
-- Full decap verification: `./mceliece decapfull | cat`
-- Deterministic KAT rsp: `./run_kat | cat`
-- KAT internal error-positions: `./mceliece katint mceliece6688128/kat_kem.req our_test.int | cat`
-- Debug a decode: `env MCELIECE_DEBUG=1 ./mceliece decapdbg | cat`
+## Notes
 
-## Troubleshooting
-- If debug prints show `L vs alpha mismatch: YES`, ensure domain construction bit-reverses only the lower m bits (fixed in this repo).
-- If a reference Makefile binary fails to link on your platform, prefer the main CLI tests above; Makefiles are primarily for reference integration.
-- macOS users: use `clang` (Xcode toolchain) or Homebrew `llvm`. GNU `make` is sufficient.
+- The reference folder `mceliece6688128/` is kept for context; KAT artifacts and `gf.c` were removed.
+- If you prefer a Makefile or CMake again, you can reintroduce one using the compile lines above.
 
-## Repository structure (relevant parts)
-- `mceliece_*.c/.h`: our implementation (GF, poly, matrix ops, keygen, encode/decode, KEM)
-- `mceliece6688128/`: reference components (gf, benes, controlbits, etc.) for cross-checking
-- `run_kat`, `run_kat.c`: driver to produce `our_kat_output.rsp`
-- `Makefile.reference_test`, `Makefile.direct_comparison`: reference-integration builds
 
-## License
-This repository integrates reference sources strictly for testing and comparison. See headers for their respective licenses. Our implementation is provided for research and educational purposes.
