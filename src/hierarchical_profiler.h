@@ -1,8 +1,10 @@
+// If PROFILER_ENABLE is defined, pull in the real profiler; else no-op macros
 #ifndef HIERARCHICAL_PROFILER_STUB_H
 #define HIERARCHICAL_PROFILER_STUB_H
 
-// Stubbed profiler header for core library builds.
-// Defines no-op macros so core code can include profiling hooks without dependency.
+#ifdef PROFILER_ENABLE
+#include "../tools/call_runtime/hierarchical_profiler.h"
+#else
 
 #define PROFILE_START(name) do {} while (0)
 #define PROFILE_END(name) do {} while (0)
@@ -66,6 +68,8 @@
 
 #define PROFILE_CHIEN_SEARCH_START() do {} while (0)
 #define PROFILE_CHIEN_SEARCH_END() do {} while (0)
+
+#endif // PROFILER_ENABLE
 
 #endif // HIERARCHICAL_PROFILER_STUB_H
 
