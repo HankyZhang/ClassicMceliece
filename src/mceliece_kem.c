@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "debuglog.h"
-#include "hierarchical_profiler.h"
 #ifdef USE_REF_RANDOMBYTES
 #include "mceliece6688128/nist/rng.h"
 #endif
@@ -23,7 +21,7 @@ static inline uint16_t pqclean_load_gf_le(const unsigned char *src) {
 }
 
 static void gen_e_pqclean(unsigned char *e) {
-    PROFILE_GEN_E_PQCLEAN_START();
+    
     int i, j, eq, count;
     union {
         uint16_t nums[ MCELIECE_T * 2 ];
@@ -62,7 +60,7 @@ static void gen_e_pqclean(unsigned char *e) {
         }
         e[i] = acc;
     }
-    PROFILE_GEN_E_PQCLEAN_END();
+    
 }
 
 // KeyGen算法
@@ -130,13 +128,10 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
     if (!pk || !ciphertext || !session_key) {
         return MCELIECE_ERROR_INVALID_PARAM;
     }
-    const char *env_debug = getenv("MCELIECE_DEBUG");
-    int dbg_enabled = (!kat_drbg_is_inited()) && env_debug && env_debug[0] == '1';
     
     int max_attempts = 10;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         // Step 1: Generate fixed weight vector e (KAT: draw directly from DRBG for exact matching)
-        if (dbg_enabled) { printf("[encap] generating error vector e...\n"); fflush(stdout); }
         uint8_t *e = malloc(MCELIECE_N_BYTES);
         if (!e) return MCELIECE_ERROR_MEMORY;
         
@@ -144,7 +139,6 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         if (kat_drbg_is_inited()) {
             memset(e, 0, MCELIECE_N_BYTES);
             gen_e_pqclean(e);
-            dbg_hex_us("encap.e.first128B", e, MCELIECE_N_BYTES, 128);
             ret = MCELIECE_SUCCESS;
         } else {
             ret = fixed_weight_vector(e, MCELIECE_N, MCELIECE_T);
@@ -159,16 +153,11 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         }
         
         // Step 2: Calculate C = Encode(e, T)
-        if (dbg_enabled) { printf("[encap] encoding ciphertext C = H*e...\n"); fflush(stdout); }
-        PROFILE_ENCODE_VECTOR_START();
         encode_vector(e, &pk->T, ciphertext);
-        PROFILE_ENCODE_VECTOR_END();
-        dbg_hex_us("encap.C.first64B", ciphertext, MCELIECE_MT_BYTES, 64);
         
         
         
         // Step 3: Calculate K = Hash(1, e, C) exactly like reference (no extra prefix byte)
-        if (dbg_enabled) { printf("[encap] deriving session key...\n"); fflush(stdout); }
         // Construct hash input: prefix 1 + e + C
         size_t hash_input_len = 1 + MCELIECE_N_BYTES + MCELIECE_MT_BYTES;
         uint8_t *hash_input = malloc(hash_input_len);
@@ -182,13 +171,10 @@ mceliece_error_t mceliece_encap(const public_key_t *pk, uint8_t *ciphertext, uin
         memcpy(hash_input + 1 + MCELIECE_N_BYTES, ciphertext, MCELIECE_MT_BYTES);
         
         // Reference hashes the raw bytes (1||e||C) with SHAKE256 to 32 bytes
-        PROFILE_SHAKE256_START();
         shake256(hash_input, hash_input_len, session_key, 32);
-        PROFILE_SHAKE256_END();
         
         free(e);
         free(hash_input);
-        if (dbg_enabled) { printf("[encap] done.\n"); fflush(stdout); }
         return MCELIECE_SUCCESS;
     }
     
@@ -204,8 +190,6 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     if (!ciphertext || !sk || !session_key) {
         return MCELIECE_ERROR_INVALID_PARAM;
     }
-    const char *env_debug = getenv("MCELIECE_DEBUG");
-    int dbg_enabled = (!kat_drbg_is_inited()) && env_debug && env_debug[0] == '1';
     
     // Step 1: Set b = 1
     uint8_t b = 1;
@@ -215,8 +199,6 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     if (!e) return MCELIECE_ERROR_MEMORY;
     
     // Build v = (C, 0, ..., 0) and decode directly using reordered support sk->alpha
-    if (dbg_enabled) { printf("[decap] building v=(C,0,...) and decoding...\n"); fflush(stdout); }
-    PROFILE_START("build_v_vector");
     uint8_t *v = calloc(MCELIECE_N_BYTES, 1);
     if (!v) { free(e); return MCELIECE_ERROR_MEMORY; }
     int mt = MCELIECE_M * MCELIECE_T;
@@ -224,7 +206,6 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
         int bit = vector_get_bit(ciphertext, i);
         vector_set_bit(v, i, bit);
     }
-    PROFILE_END("build_v_vector");
 
     int decode_success;
     mceliece_error_t ret;
@@ -237,11 +218,8 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     }
     gf_elem_t *L = (gf_elem_t*)malloc(sizeof(gf_elem_t) * MCELIECE_N);
     if (!L) { free(v); free(e); return MCELIECE_ERROR_MEMORY; }
-    PROFILE_START("support_from_cbits");
     support_from_cbits(L, sk->controlbits, MCELIECE_M, MCELIECE_N);
-    PROFILE_END("support_from_cbits");
     ret = decode_goppa(v, &sk->g, L, e, &decode_success);
-    if (dbg_enabled) { printf("[decap] decode_success=%d\n", decode_success); fflush(stdout); }
     free(L);
     free(v);
     
@@ -252,11 +230,8 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     
     if (!decode_success) {
         // Decoding failed, use backup vector s
-        if (!kat_drbg_is_inited()) printf("Debug: Decoding failed, using backup vector s\n");
         memcpy(e, sk->s, MCELIECE_N_BYTES);
         b = 0;
-    } else {
-        if (!kat_drbg_is_inited()) printf("Debug: Decoding succeeded, using recovered error vector\n");
     }
     
     // Step 4: Calculate K = Hash(b, e, C) exactly like reference (no extra prefix byte)
@@ -272,9 +247,7 @@ mceliece_error_t mceliece_decap(const uint8_t *ciphertext, const private_key_t *
     memcpy(hash_input + 1 + MCELIECE_N_BYTES, ciphertext, MCELIECE_MT_BYTES);
     
     // Reference hashes the raw bytes (b||e||C) with SHAKE256 to 32 bytes
-    PROFILE_SHAKE256_START();
     shake256(hash_input, hash_input_len, session_key, 32);
-    PROFILE_SHAKE256_END();
     
     free(e);
     free(hash_input);

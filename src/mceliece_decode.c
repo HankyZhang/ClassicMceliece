@@ -1,7 +1,6 @@
 
 #include "mceliece_decode.h"
 #include "controlbits.h"
-#include "hierarchical_profiler.h"
 
 
 // Calculate syndrome from a received vector r (reference-style, like mceliece6688128/synd.c)
@@ -9,10 +8,9 @@
 // Output: syndrome[0..2t-1]
 void compute_syndrome(const uint8_t *received, const polynomial_t *g,
                       const gf_elem_t *alpha, gf_elem_t *syndrome) {
-    PROFILE_COMPUTE_SYNDROME_START();
+    
     if (!received || !g || !alpha || !syndrome) return;
-    const char *env_debug = getenv("MCELIECE_DEBUG");
-    int dbg_enabled = env_debug && env_debug[0] == '1';
+    
 
     // Syndrome definition for H = [I | T] with H_{i,j} = α_j^i / g(α_j):
     // s_j = Σ_{i∈I} α_i^j / g(α_i)
@@ -35,9 +33,9 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
             }
 
         }
-        if (dbg_enabled && ((j & 7) == 7)) { printf("[decode] syndrome j=%d computed\n", j); fflush(stdout); }
+        
     }
-    PROFILE_COMPUTE_SYNDROME_END();
+    
 }
 
 
@@ -46,14 +44,13 @@ void compute_syndrome(const uint8_t *received, const polynomial_t *g,
 // Output: error locator polynomial sigma and error evaluator polynomial omega
 mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
                                   polynomial_t *sigma) {
-    PROFILE_BERLEKAMP_MASSEY_START();
+    
     if (!syndrome || !sigma) {
         mceliece_error_t _ret = MCELIECE_ERROR_INVALID_PARAM;
-        PROFILE_BERLEKAMP_MASSEY_END();
+        
         return _ret;
     }
-    const char *env_debug = getenv("MCELIECE_DEBUG");
-    int dbg_enabled = env_debug && env_debug[0] == '1';
+    
 
     // Initialize polynomials
     polynomial_t *C = polynomial_create(MCELIECE_T);  // Current connection polynomial
@@ -119,7 +116,7 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
                 m++;
             }
         }
-        if (dbg_enabled && ((N & 7) == 7)) { printf("[BM] processed N=%d\n", N); fflush(stdout); }
+        
     }
 
     // Output error locator polynomial
@@ -130,7 +127,7 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
     polynomial_free(B);
     polynomial_free(T);
 
-    PROFILE_BERLEKAMP_MASSEY_END();
+    
     return MCELIECE_SUCCESS;
 }
 
@@ -138,14 +135,13 @@ mceliece_error_t berlekamp_massey(const gf_elem_t *syndrome,
 // Our BM produces a locator defined in terms of α_j^{-1}, so check σ(α_j^{-1}) = 0
 mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
                               int *error_positions, int *num_errors) {
-    PROFILE_CHIEN_SEARCH_START();
+    
     if (!sigma || !alpha || !error_positions || !num_errors) {
         mceliece_error_t _ret = MCELIECE_ERROR_INVALID_PARAM;
-        PROFILE_CHIEN_SEARCH_END();
+        
         return _ret;
     }
-    const char *env_debug = getenv("MCELIECE_DEBUG");
-    int dbg_enabled = env_debug && env_debug[0] == '1';
+    
 
     *num_errors = 0;
 
@@ -159,14 +155,13 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
             // Found a root, corresponding to error position
             error_positions[*num_errors] = j;
             (*num_errors)++;
-            if (dbg_enabled) { printf("[Chien] root at j=%d (errors=%d)\n", j, *num_errors); fflush(stdout); }
+            
 
             if (*num_errors >= MCELIECE_T) break;  // At most t errors
         }
     }
 
-    if (dbg_enabled) { printf("[Chien] total errors=%d\n", *num_errors); fflush(stdout); }
-    PROFILE_CHIEN_SEARCH_END();
+    
     return MCELIECE_SUCCESS;
 }
 
@@ -176,11 +171,9 @@ mceliece_error_t chien_search(const polynomial_t *sigma, const gf_elem_t *alpha,
 mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
                               const gf_elem_t *alpha, uint8_t *error_vector,
                               int *decode_success) {
-    PROFILE_DECODE_GOPPA_START();
+    
     if (!received || !g || !alpha || !error_vector || !decode_success) {
-        mceliece_error_t _ret = MCELIECE_ERROR_INVALID_PARAM;
-        PROFILE_DECODE_GOPPA_END();
-        return _ret;
+        return MCELIECE_ERROR_INVALID_PARAM;
     }
 
     *decode_success = 0;
@@ -205,7 +198,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
         memset(error_vector, 0, MCELIECE_N_BYTES);
         *decode_success = 1;
         free(syndrome);
-        PROFILE_DECODE_GOPPA_END();
         return MCELIECE_SUCCESS;
     }
 
@@ -225,7 +217,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
         free(syndrome);
         polynomial_free(sigma);
         polynomial_free(omega);
-        PROFILE_DECODE_GOPPA_END();
         return ret;
     }
 
@@ -262,7 +253,6 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
             free(syndrome);
             polynomial_free(sigma);
             free(error_positions);
-            PROFILE_DECODE_GOPPA_END();
             return MCELIECE_SUCCESS;
         }
     }
@@ -290,7 +280,7 @@ mceliece_error_t decode_goppa(const uint8_t *received, const polynomial_t *g,
     polynomial_free(sigma);
     free(error_positions);
 
-    PROFILE_DECODE_GOPPA_END();
+    
     return MCELIECE_SUCCESS;
 }
 
@@ -330,14 +320,7 @@ mceliece_error_t decode_ciphertext(const uint8_t *ciphertext, const private_key_
         L = (gf_elem_t*)malloc(sizeof(gf_elem_t) * MCELIECE_N);
         if (L) {
             support_from_cbits(L, sk->controlbits, MCELIECE_M, MCELIECE_N);
-            const char *env_debug = getenv("MCELIECE_DEBUG");
-            int dbg_enabled = env_debug && env_debug[0] == '1';
-            if (dbg_enabled) {
-                int mismatch = 0;
-                for (int j = 0; j < MCELIECE_N; j++) if (L[j] != sk->alpha[j]) { mismatch++; break; }
-                printf("[decode] L vs alpha mismatch: %s\n", mismatch ? "YES" : "NO");
-                fflush(stdout);
-            }
+            
         }
     }
     mceliece_error_t ret = decode_goppa(v, &sk->g, L ? L : sk->alpha, error_vector, success);

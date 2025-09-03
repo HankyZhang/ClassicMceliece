@@ -2,7 +2,6 @@
 #include "../src/mceliece_keygen.h"
 #include "../src/mceliece_genpoly.h"
 #include "../src/mceliece_kem.h"
-#include "../src/hierarchical_profiler.h"
 #include "../src/kat_drbg.h"
 #include "../src/controlbits.h"
 
@@ -149,11 +148,7 @@ int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots, int1
 
 mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, private_key_t *sk) {
     if (!delta || !pk || !sk) return MCELIECE_ERROR_INVALID_PARAM;
-    const char *semi_dbg = getenv("MCELIECE_DEBUG");
-    if (semi_dbg && semi_dbg[0] == '1') {
-        printf("[semi] seeded_key_gen_semi start\n");
-        fflush(stdout);
-    }
+    
 
     // Reuse seeded_key_gen steps until building H, then use semi reduction
     int n_bits = MCELIECE_N;

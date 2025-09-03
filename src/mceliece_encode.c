@@ -1,14 +1,12 @@
 #include "mceliece_encode.h"
 #include "mceliece_matrix_ops.h"
-#include "hierarchical_profiler.h"
 #include <time.h>
 #include <stdio.h>
 
 
 
 mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
-    const char *env_debug = getenv("MCELIECE_DEBUG");
-    int dbg_enabled = env_debug && env_debug[0] == '1';
+    
     memset(e, 0, (n + 7) / 8);
 
     // 根据规范 2.1 FixedWeight() 算法
@@ -70,7 +68,7 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
         if (is_unique) {
             positions[unique_count] = pos;
             unique_count++;
-            if (dbg_enabled && (unique_count % 16 == 0)) { printf("[fixed_weight] selected %d/%d positions\n", unique_count, t); fflush(stdout); }
+            
         }
         attempts++;
     }
@@ -87,7 +85,7 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
     for (int i = 0; i < t; i++) {
         vector_set_bit(e, positions[i], 1);
     }
-    if (dbg_enabled) { printf("[fixed_weight] done.\n"); fflush(stdout); }
+    
 
     free(positions);
     free(d_values);
@@ -98,7 +96,6 @@ mceliece_error_t fixed_weight_vector(uint8_t *e, int n, int t) {
 
 // Encode算法：C = He，其中H = (I_mt | T)
 void encode_vector(const uint8_t *error_vector, const matrix_t *T, uint8_t *ciphertext) {
-    PROFILE_ENCODE_VECTOR_START();
     if (!error_vector || !T || !ciphertext) return;
 
     int mt = MCELIECE_M * MCELIECE_T;
@@ -134,7 +131,7 @@ void encode_vector(const uint8_t *error_vector, const matrix_t *T, uint8_t *ciph
             vector_set_bit(ciphertext, row, current_bit ^ 1);
         }
     }
-    PROFILE_ENCODE_VECTOR_END();
+    
 }
 
 
