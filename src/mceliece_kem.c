@@ -10,6 +10,8 @@
 #ifdef USE_REF_RANDOMBYTES
 #include "mceliece6688128/nist/rng.h"
 #endif
+// Semi-systematic keygen API
+#include "../src_semi/mceliece_keygen_semi.h"
 
 // Reference KAT API not used; we emit rsp using our implementation
 // PQClean-style helpers for KAT parity
@@ -646,10 +648,35 @@ void run_kat_file(const char *req_path, const char *rsp_path) {
             // Fallback to our serialization (won't match reference bytes exactly)
             public_key_t *pk = public_key_create();
             private_key_t *sk = private_key_create();
-            if (!pk || !sk) { printf("KAT: alloc fail\n"); break; }
-            if (mceliece_keygen(pk, sk) != MCELIECE_SUCCESS) { printf("KAT: keygen fail\n"); public_key_free(pk); private_key_free(sk); continue; }
-            uint8_t ct[MCELIECE_MT_BYTES]; uint8_t ss[MCELIECE_L_BYTES];
-            if (mceliece_encap(pk, ct, ss) != MCELIECE_SUCCESS) { printf("KAT: encap fail\n"); public_key_free(pk); private_key_free(sk); continue; }
+            if (!pk || !sk) { 
+                printf("KAT: alloc fail\n"); 
+                break; 
+            }
+            int use_semi = 0; 
+            const char *semi_env = getenv("MCELIECE_SEMI");
+            if (semi_env && semi_env[0] == '1') use_semi = 1;
+            mceliece_error_t kgret;
+            if (use_semi) {
+                uint8_t dummy_delta[MCELIECE_L_BYTES]; 
+                memset(dummy_delta, 0, sizeof dummy_delta);
+                kgret = seeded_key_gen_semi(dummy_delta, pk, sk);
+            } else {
+                kgret = mceliece_keygen(pk, sk);
+            }
+            if (kgret != MCELIECE_SUCCESS) { 
+                printf("KAT: keygen fail\n"); 
+                public_key_free(pk); 
+                private_key_free(sk); 
+                continue; 
+            }
+            uint8_t ct[MCELIECE_MT_BYTES]; 
+            uint8_t ss[MCELIECE_L_BYTES];
+            if (mceliece_encap(pk, ct, ss) != MCELIECE_SUCCESS) { 
+                printf("KAT: encap fail\n"); 
+                public_key_free(pk); 
+                private_key_free(sk); 
+                continue; 
+            }
             fprintf(fout, "pk = ");
             int out_row_bytes = pk->T.cols / 8;
             unsigned char *Tser = (unsigned char*)malloc((size_t)pk->T.rows * (size_t)out_row_bytes);
@@ -661,11 +688,17 @@ void run_kat_file(const char *req_path, const char *rsp_path) {
             }
             if (Tser) free(Tser);
             fprintf(fout, "\n");
-            // Serialize secret key exactly as reference format
+            // Serialize secret key (reference packing for systematic; semi uses semi serializer)
             size_t sk_cap = (size_t)32 + 8 + (size_t)(2 * MCELIECE_T) + sk->controlbits_len + (size_t)MCELIECE_N_BYTES;
             unsigned char *sk_bytes = (unsigned char*)malloc(sk_cap);
             size_t sk_len = 0;
-            if (sk_bytes && private_key_serialize_refpacking(sk, sk_bytes, sk_cap, &sk_len) == 0) {
+            int sk_ok = 0;
+            if (use_semi) {
+                if (sk_bytes && private_key_serialize_semi(sk, sk_bytes, sk_cap, &sk_len) == 0) sk_ok = 1;
+            } else {
+                if (sk_bytes && private_key_serialize_refpacking(sk, sk_bytes, sk_cap, &sk_len) == 0) sk_ok = 1;
+            }
+            if (sk_ok) {
                 fprintf(fout, "sk = ");
                 for (size_t i = 0; i < sk_len; i++) fprintf(fout, "%02X", sk_bytes[i]);
                 fprintf(fout, "\n");
@@ -724,19 +757,31 @@ void run_kat_int(const char *req_path, const char *int_path) {
             public_key_t *pk = public_key_create();
             private_key_t *sk = private_key_create();
             if (!pk || !sk) { printf("KAT-INT: alloc fail\n"); break; }
-            if (mceliece_keygen(pk, sk) != MCELIECE_SUCCESS) { printf("KAT-INT: keygen fail\n"); public_key_free(pk); private_key_free(sk); continue; }
+            if (mceliece_keygen(pk, sk) != MCELIECE_SUCCESS) { 
+                printf("KAT-INT: keygen fail\n"); 
+                public_key_free(pk); 
+                private_key_free(sk); 
+                continue; 
+            }
 
             // encrypt e using PQClean-style sampler
-            uint8_t e_enc[MCELIECE_N_BYTES]; memset(e_enc, 0, sizeof e_enc);
+            uint8_t e_enc[MCELIECE_N_BYTES]; 
+            memset(e_enc, 0, sizeof e_enc);
             gen_e_pqclean(e_enc);
             dump_positions(fout, "encrypt", e_enc, MCELIECE_N);
 
             // ciphertext from e
-            uint8_t C[MCELIECE_MT_BYTES]; encode_vector(e_enc, &pk->T, C);
+            uint8_t C[MCELIECE_MT_BYTES]; 
+            encode_vector(e_enc, &pk->T, C);
 
             // decap to get e_dec
             uint8_t e_dec[MCELIECE_N_BYTES]; int succ = 0;
-            if (decode_ciphertext(C, sk, e_dec, &succ) != MCELIECE_SUCCESS) { printf("KAT-INT: decode err\n"); public_key_free(pk); private_key_free(sk); continue; }
+            if (decode_ciphertext(C, sk, e_dec, &succ) != MCELIECE_SUCCESS) { 
+                printf("KAT-INT: decode err\n"); 
+                public_key_free(pk); 
+                private_key_free(sk); 
+                continue; 
+            }
             if (!succ) memcpy(e_dec, sk->s, MCELIECE_N_BYTES);
             dump_positions(fout, "decrypt", e_dec, MCELIECE_N);
 

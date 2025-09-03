@@ -208,32 +208,21 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             if (dbg_enabled) { printf("[keygen] computing controlbits (Benes)...\n"); fflush(stdout); }
             long long m = MCELIECE_M;
             long long n_full = 1LL << m; // 2^m
-            // Build permutation pi over 2^m that maps identity to the actual support ordering sk->alpha (bit-reversed domain)
+            // Build permutation pi over 2^m mapping identity to desired support ordering.
+            // Since our support alpha[j] was constructed as bitrev(pi[j]) in generate_field_ordering,
+            // we can recover pi[j] directly as bitrev(alpha[j]).
             size_t pi_bytes = sizeof(int16_t) * (size_t)n_full;
             int16_t *pi = (int16_t*)malloc(pi_bytes);
-            int16_t *val_to_index = (int16_t*)malloc(sizeof(int16_t) * (size_t)n_full);
-            if (!pi || !val_to_index) { 
-                free(pi); 
-                free(val_to_index); 
-                free(E); 
-                return MCELIECE_ERROR_MEMORY; 
-            }
-            for (long long i = 0; i < n_full; i++) {
-                // inline bit-reverse of lower m bits
-                uint16_t x = (uint16_t)i;
-                uint16_t r = 0;
-                for (int bi = 0; bi < MCELIECE_M; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
-                uint16_t v = (uint16_t)(r & ((1U << MCELIECE_M) - 1U));
-                val_to_index[v] = (int16_t)i;
-            }
-            // Build permutation so that applying Benes to identity yields p[j] = src_index(a_j)
+            if (!pi) { free(E); return MCELIECE_ERROR_MEMORY; }
             for (long long i = 0; i < n_full; i++) pi[i] = (int16_t)i;
-            for (int j = 0; j < MCELIECE_Q; j++) {
-                uint16_t a = (uint16_t)sk->alpha[j];
-                int16_t src = val_to_index[a];
-                pi[j] = src;  // so L[j] = domain[p[j]] == domain[src] == a
+            for (int j = 0; j < MCELIECE_N; j++) {
+                uint16_t v = (uint16_t)sk->alpha[j];
+                uint16_t r = 0;
+                for (int bi = 0; bi < MCELIECE_M; bi++) {
+                    r = (uint16_t)((r << 1) | ((v >> bi) & 1U));
+                }
+                pi[j] = (int16_t)(r & ((1U << MCELIECE_M) - 1U));
             }
-            free(val_to_index);
             size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
             if (sk->controlbits) { 
                 free(sk->controlbits); 
@@ -241,9 +230,9 @@ mceliece_error_t seeded_key_gen(const uint8_t *delta, public_key_t *pk, private_
             }
             sk->controlbits = (uint8_t*)malloc(cb_len);
             if (!sk->controlbits) { 
-                free(pi); 
-                free(E); 
-                return MCELIECE_ERROR_MEMORY; 
+                free(pi);
+                free(E);
+                return MCELIECE_ERROR_MEMORY;
             }
             memset(sk->controlbits, 0, cb_len);
             PROFILE_CBITS_FROM_PERM_START();

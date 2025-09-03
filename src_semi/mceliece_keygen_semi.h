@@ -10,8 +10,10 @@
 extern "C" {
 #endif
 
-// Build H and reduce it to semi-systematic form using reference-style walk
-int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots);
+// Build H and reduce it to semi-systematic form using reference-style walk.
+// Also records the column permutation into col_perm (length MCELIECE_N) if non-NULL,
+// and updates the global permutation pi (length 1<<MCELIECE_M) in-place like reference mov_columns.
+int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots, int16_t *col_perm, int16_t *pi);
 
 // SeededKeyGen variant producing semi-systematic public key; stores pivots in sk->c
 mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, private_key_t *sk);
@@ -24,6 +26,7 @@ int private_key_serialize_semi(const private_key_t *sk, uint8_t *out, size_t out
 #endif
 
 #endif // CLASSICMCELIECE_MCELIECE_KEYGEN_SEMI_H
+
 
 
 

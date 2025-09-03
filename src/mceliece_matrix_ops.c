@@ -123,8 +123,8 @@ int matrix_is_systematic(const matrix_t *mat) {
 }
 
 int reduce_to_systematic_form(matrix_t *H) {
-    // Delegate to robust row/column pivoting eliminator
-    return reduce_to_systematic_form_record(H, NULL, NULL);
+    // Systematic path must NOT swap columns. Use row-only reduction.
+    return reduce_to_systematic_form_reference_style(H);
 }
 
 // Build H using the same bit-sliced packing and column grouping convention

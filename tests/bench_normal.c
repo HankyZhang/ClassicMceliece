@@ -15,7 +15,7 @@ static double now_ms(void) {
 }
 
 int main(int argc, char** argv) {
-    int iters = 5;
+    int iters = 100;
     if (argc >= 3 && strcmp(argv[1], "-n") == 0) {
         int n = atoi(argv[2]);
         if (n > 0 && n <= 1000) iters = n;

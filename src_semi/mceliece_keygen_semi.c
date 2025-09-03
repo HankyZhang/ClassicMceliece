@@ -7,10 +7,16 @@
 #include "../src/kat_drbg.h"
 #include "../src/controlbits.h"
 
-static inline int extract_pivots_and_reorder_like_ref(matrix_t *H, int16_t *pi_out, uint64_t *pivots_out) {
+static inline uint16_t bitrev_m_u16(uint16_t x, int m) {
+    uint16_t r = 0;
+    for (int j = 0; j < m; j++) {
+        r = (uint16_t)((r << 1) | ((x >> j) & 1U));
+    }
+    return (uint16_t)(r & ((1U << m) - 1U));
+}
+
+static inline int extract_pivots_and_reorder_like_ref(matrix_t *H, uint64_t *pivots_out, int16_t *col_perm, int16_t *pi) {
     int mt = H->rows;
-    int n = H->cols;
-    int left_bytes = (mt + 7) / 8;
     int block_idx = (mt - 32) / 8; // PK_NROWS-32 byte index
     if (mt % 8 != 0) return -1;
     if (!pivots_out) return -1;
@@ -55,11 +61,40 @@ static inline int extract_pivots_and_reorder_like_ref(matrix_t *H, int16_t *pi_o
         for (int b = 0; b < 8; b++) { p[b] = (uint8_t)(t & 0xFFu); t >>= 8; }
     }
 
-    (void)pi_out; // not used in semi path
+    // Update column permutation mapping to reflect the same swaps within this 64-column window
+    if (col_perm) {
+        int base_col = block_idx * 8;
+        for (int j = 0; j < 32; j++) {
+            int a = base_col + j;
+            int b = base_col + (int)ctz_list[j];
+            int16_t tmp = col_perm[a];
+            col_perm[a] = col_perm[b];
+            col_perm[b] = tmp;
+        }
+    }
+
+    // Update global permutation pi exactly like reference mov_columns:
+    // for j in 0..31, for k in j+1..63, conditionally swap pi[row+j] and pi[row+k] if k == ctz_list[j]
+    if (pi) {
+        int base_row = mt - 32;
+        for (int j = 0; j < 32; j++) {
+            for (int k = j + 1; k < 64; k++) {
+                int swap = (k == (int)ctz_list[j]);
+                if (swap) {
+                    int idx_a = base_row + j;
+                    int idx_b = base_row + k;
+                    int16_t tmp = pi[idx_a];
+                    pi[idx_a] = pi[idx_b];
+                    pi[idx_b] = tmp;
+                }
+            }
+        }
+    }
+
     return 0;
 }
 
-int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots) {
+int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots, int16_t *col_perm, int16_t *pi) {
     if (!H || !pivots) return -1;
     // Perform the same left-walk elimination, but when reaching last 32 rows, run mov_columns equivalent
     int mt = H->rows;
@@ -70,7 +105,7 @@ int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots) {
             if (row >= mt) break;
 
             if (row == mt - 32) {
-                if (extract_pivots_and_reorder_like_ref(H, NULL, pivots) != 0) return -1;
+                if (extract_pivots_and_reorder_like_ref(H, pivots, col_perm, pi) != 0) return -1;
             }
 
             for (int r = row + 1; r < mt; r++) {
@@ -133,14 +168,12 @@ mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, pri
 
     int max_attempts = 50;
     for (int attempt = 0; attempt < max_attempts; attempt++) {
+        uint8_t delta_prime[32];
         if (kat_drbg_is_inited()) {
-            uint8_t delta_prime[32];
             kat_expand_r(E, prg_output_len_bytes, delta_prime);
         } else {
             mceliece_prg(sk->delta, E, prg_output_len_bytes);
         }
-
-        uint8_t delta_prime[32];
         memcpy(delta_prime, E + prg_output_len_bytes - delta_prime_len_bytes, delta_prime_len_bytes);
 
         const uint8_t *s_bits_ptr = E;
@@ -166,11 +199,41 @@ mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, pri
         matrix_t *Htmp = matrix_create(mt, n);
         if (!Htmp) { memcpy(sk->delta, delta_prime, 32); continue; }
         if (build_parity_check_matrix_reference_style(Htmp, &sk->g, sk->alpha) != 0) {
-            matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue;
+            matrix_free(Htmp); 
+            memcpy(sk->delta, delta_prime, 32); 
+            continue;
         }
         uint64_t pivots = 0;
-        if (reduce_to_semisystematic_reference_style(Htmp, &pivots) != 0) {
-            matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue;
+        // track column permutation as we semi-systematize
+        int16_t *col_perm = (int16_t*)malloc(sizeof(int16_t) * (size_t)MCELIECE_N);
+        if (!col_perm) { matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue; }
+        for (int i = 0; i < MCELIECE_N; i++) col_perm[i] = (int16_t)i;
+        // maintain global permutation pi exactly like reference
+        long long m = MCELIECE_M;
+        long long n_full = 1LL << m;
+        size_t pi_bytes = sizeof(int16_t) * (size_t)n_full;
+        int16_t *pi = (int16_t*)malloc(pi_bytes);
+        if (!pi) { free(col_perm); matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue; }
+        // Initialize pi from support: pi[j] = bitrev(alpha[j]) for j<N, then fill remaining with unused values
+        uint8_t *used = (uint8_t*)calloc((size_t)n_full, 1);
+        if (!used) { free(pi); free(col_perm); matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue; }
+        for (int j = 0; j < MCELIECE_N; j++) {
+            uint16_t a = (uint16_t)sk->alpha[j];
+            int16_t v = (int16_t)bitrev_m_u16(a, (int)m);
+            pi[j] = v;
+            used[(size_t)v] = 1;
+        }
+        int16_t fill = 0;
+        for (long long j = MCELIECE_N; j < n_full; j++) {
+            while ((long long)fill < n_full && used[(size_t)fill]) fill++;
+            if ((long long)fill >= n_full) { pi[j] = 0; } else { pi[j] = fill; used[(size_t)fill] = 1; fill++; }
+        }
+        free(used);
+        if (reduce_to_semisystematic_reference_style(Htmp, &pivots, col_perm, pi) != 0) {
+            matrix_free(Htmp); 
+            free(pi);
+            memcpy(sk->delta, delta_prime, 32); 
+            continue;
         }
         // store pivots in secret key
         sk->c = pivots;
@@ -183,20 +246,8 @@ mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, pri
         }
         matrix_free(Htmp);
 
-        // controlbits same as systematic path
-        long long m = MCELIECE_M;
-        long long n_full = 1LL << m;
-        size_t pi_bytes = sizeof(int16_t) * (size_t)n_full;
-        int16_t *pi = (int16_t*)malloc(pi_bytes);
-        int16_t *val_to_index = (int16_t*)malloc(sizeof(int16_t) * (size_t)n_full);
-        if (!pi || !val_to_index) { free(pi); free(val_to_index); free(E); return MCELIECE_ERROR_MEMORY; }
-        for (long long i = 0; i < n_full; i++) {
-            uint16_t x = (uint16_t)i; uint16_t r = 0; for (int bi = 0; bi < MCELIECE_M; bi++) { r = (uint16_t)((r << 1) | ((x >> bi) & 1U)); }
-            uint16_t v = (uint16_t)(r & ((1U << MCELIECE_M) - 1U)); val_to_index[v] = (int16_t)i;
-        }
-        for (long long i = 0; i < n_full; i++) pi[i] = (int16_t)i;
-        for (int j = 0; j < MCELIECE_Q; j++) { uint16_t a = (uint16_t)sk->alpha[j]; int16_t src = val_to_index[a]; pi[j] = src; }
-        free(val_to_index);
+        // controlbits: build directly from pi updated during mov_columns
+        free(col_perm);
         size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
         if (sk->controlbits) { free(sk->controlbits); sk->controlbits = NULL; }
         sk->controlbits = (uint8_t*)malloc(cb_len);
