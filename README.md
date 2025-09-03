@@ -100,16 +100,7 @@ The DRBG in `src/kat_drbg.c` is initialized per-seed lines from the request, ens
 This repository includes an additional **semi-systematic matrix reduction** implementation alongside the standard systematic approach:
 
 - **Location**: `src_semi/mceliece_keygen_semi.c`
-- **Purpose**: Alternative matrix reduction strategy following the reference implementation pattern from `mceliece6688128f/pk_gen.c`
 - **Key difference**: Performs semi-systematic pivot extraction during Gaussian elimination for the last 32 rows
-
-### Recent Bug Fixes (Latest Commit)
-
-The semi-systematic implementation had critical bugs that were recently resolved:
-
-1. **Gaussian Elimination Masks**: Fixed incorrect bit manipulation in `extract_pivots_and_reorder_like_ref()`
-2. **Algorithm Flow**: Fixed premature termination - now continues systematic elimination after semi-systematic pivot extraction
-3. **Validation**: Semi-systematic KAT output now correctly differs from systematic output
 
 ### Usage
 
@@ -240,5 +231,4 @@ gcc -O2 -Wall -Wextra -Isrc -Isrc_semi \
   - `tools/call_runtime/function_profiler.h`: implement `get_time_ms()` with QueryPerformanceCounter under `_WIN32`.
   - `tools/call_runtime/call_graph_benchmark.c`: replace `getopt`/`unistd.h` with a minimal argv parser or compile this tool under WSL/MSYS2.
 - Create a VS project, add all files from `src/` (and optionally `src_semi/` for semi-systematic support) and the three sources in `tools/call_runtime/`, and set include paths to `src`, `src_semi` and `tools/call_runtime`.
-
 
