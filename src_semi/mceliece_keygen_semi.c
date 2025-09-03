@@ -2,7 +2,6 @@
 #include "../src/mceliece_keygen.h"
 #include "../src/mceliece_genpoly.h"
 #include "../src/mceliece_kem.h"
-#include "../src/debuglog.h"
 #include "../src/hierarchical_profiler.h"
 #include "../src/kat_drbg.h"
 #include "../src/controlbits.h"
