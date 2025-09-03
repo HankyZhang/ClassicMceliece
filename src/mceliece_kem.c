@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include "debuglog.h"
 #include "hierarchical_profiler.h"
+#ifdef USE_REF_RANDOMBYTES
+#include "mceliece6688128/nist/rng.h"
+#endif
 
 // Reference KAT API not used; we emit rsp using our implementation
 // PQClean-style helpers for KAT parity
@@ -72,8 +75,48 @@ mceliece_error_t mceliece_keygen(public_key_t *pk, private_key_t *sk) {
         // In KAT mode, avoid consuming extra bytes; seeded_key_gen will draw E directly from DRBG
         memset(delta, 0, sizeof(delta));
     } else {
-        // 非KAT模式的回退：使用固定标签通过 PRG 派生
-        mceliece_prg((const uint8_t*)"a_seed_for_the_seed_generator", delta, 32);
+        // 非KAT模式：优先使用参考实现的 DRBG (randombytes)，退化到 OS 随机/PRG
+        #include <time.h>
+        #ifdef USE_REF_RANDOMBYTES
+        unsigned char entropy_input[48];
+        FILE *ur48 = fopen("/dev/urandom", "rb");
+        if (ur48) {
+            size_t got = fread(entropy_input, 1, sizeof(entropy_input), ur48);
+            fclose(ur48);
+            if (got != sizeof(entropy_input)) {
+                for (size_t i = 0; i < sizeof(entropy_input); i++) {
+                    entropy_input[i] = (unsigned char)((rand() >> (i % 7)) ^ ((unsigned)time(NULL) >> (i % 5)));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < sizeof(entropy_input); i++) {
+                entropy_input[i] = (unsigned char)((rand() >> (i % 7)) ^ ((unsigned)time(NULL) >> (i % 5)));
+            }
+        }
+        randombytes_init(entropy_input, NULL, 256);
+        randombytes(delta, 32);
+        #else
+        FILE *ur = fopen("/dev/urandom", "rb");
+        size_t need = 32;
+        if (ur) {
+            size_t got = fread(delta, 1, need, ur);
+            fclose(ur);
+            if (got != need) {
+                // fallback
+                uint8_t seed_buf[32];
+                for (size_t i = 0; i < sizeof(seed_buf); i++) {
+                    seed_buf[i] = (uint8_t)((rand() >> (i % 7)) ^ ((unsigned)time(NULL) >> (i % 5)));
+                }
+                mceliece_prg(seed_buf, delta, 32);
+            }
+        } else {
+            uint8_t seed_buf[32];
+            for (size_t i = 0; i < sizeof(seed_buf); i++) {
+                seed_buf[i] = (uint8_t)((rand() >> (i % 7)) ^ ((unsigned)time(NULL) >> (i % 5)));
+            }
+            mceliece_prg(seed_buf, delta, 32);
+        }
+        #endif
     }
 
     return seeded_key_gen(delta, pk, sk);

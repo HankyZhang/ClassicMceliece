@@ -91,6 +91,30 @@ The DRBG in `src/kat_drbg.c` is initialized per-seed lines from the request, ens
 ls -l our_kat_output.rsp
 ```
 
+## Normal-mode benchmark (non-KAT)
+
+Build and run a standalone benchmark that uses real randomness for delta (non-KAT path) and measures average timings:
+
+```bash
+# Build
+cc -O2 -Wall -Wextra -Isrc \
+  tests/bench_normal.c src/*.c \
+  -o bench_normal -lm
+
+# Run 100 iterations (default) or specify -n
+./bench_normal
+./bench_normal -n 10
+```
+
+Optional: use the reference DRBG for seeding (instead of /dev/urandom fallback). Define `USE_REF_RANDOMBYTES` and link the reference RNG:
+
+```bash
+cc -O2 -Wall -Wextra -DUSE_REF_RANDOMBYTES \
+  -Isrc -Imceliece6688128 -Imceliece6688128/nist \
+  tests/bench_normal.c src/*.c mceliece6688128/nist/rng.c \
+  -o bench_normal_refdrbg -lm
+```
+
 ## Notes
 
 - The reference folder `mceliece6688128/` is kept for context; KAT artifacts and `gf.c` were removed.
