@@ -1,13 +1,15 @@
 # Classic McEliece (Organized)
 
-This repository contains a clean, minimal layout of a Classic McEliece KEM implementation, a deterministic KAT runner, and a call-runtime profiling tool.
+This repository contains a clean, minimal layout of a Classic McEliece KEM implementation with both systematic and semi-systematic matrix reduction approaches, a deterministic KAT runner, and a call-runtime profiling tool.
 
 ## Repository layout
 
-- `src/` – Complete implementation (self-contained, no external reference dependencies)
+- `src/` – Complete systematic implementation (self-contained, no external reference dependencies)
+- `src_semi/` – Semi-systematic matrix reduction implementation for McEliece key generation
 - `tests/kat/` – KAT runner and sample request data
   - `run_kat.c` – small driver that calls `run_kat_file()`
   - `data/kat_kem.req` – request file for KAT tests
+- `tests/semi-systematic-kat/` – Semi-systematic KAT reference data and test files
 - `tools/call_runtime/` – Call-graph runtime profiling tool
 - `mceliece6688128/` – Reference tree retained for documentation only (GF headers and other sources remain; KAT artifacts removed)
 - `iso-mceliece-20230419.pdf` – Parameter/spec reference
@@ -42,6 +44,8 @@ Run (examples):
 
 ### 2) Build the KAT runner
 
+#### Standard (Systematic) build:
+
 ```bash
 cc \
   -O2 -Wall -Wextra \
@@ -54,11 +58,31 @@ cc \
   -o run_kat -lm
 ```
 
+#### Semi-systematic build:
+
+```bash
+cc \
+  -O2 -Wall -Wextra \
+  -Isrc -Isrc_semi \
+  tests/kat/run_kat.c \
+  src/mceliece_gf.c src/mceliece_shake.c src/mceliece_poly.c \
+  src/mceliece_matrix_ops.c src/mceliece_vector.c src/mceliece_keygen.c \
+  src/mceliece_encode.c src/mceliece_decode.c src/mceliece_kem.c \
+  src/mceliece_genpoly.c src/kat_drbg.c src/rng.c src/controlbits.c \
+  src_semi/mceliece_keygen_semi.c \
+  -o run_kat -lm
+```
+
 Run:
 
 ```bash
+# Systematic implementation
 ./run_kat
 # Writes our_kat_output.rsp in the current directory
+
+# Semi-systematic implementation  
+MCELIECE_SEMI=1 ./run_kat
+# Writes our_kat_output.rsp with semi-systematic algorithm
 ```
 
 If you moved `tests/kat/data` elsewhere, pass explicit paths to `run_kat_file(req, rsp)` in `tests/kat/run_kat.c`.
@@ -70,6 +94,49 @@ If you moved `tests/kat/data` elsewhere, pass explicit paths to `run_kat_file(re
 - Output file: `our_kat_output.rsp`.
 
 The DRBG in `src/kat_drbg.c` is initialized per-seed lines from the request, ensuring deterministic output.
+
+## Semi-systematic Implementation
+
+This repository includes an additional **semi-systematic matrix reduction** implementation alongside the standard systematic approach:
+
+- **Location**: `src_semi/mceliece_keygen_semi.c`
+- **Purpose**: Alternative matrix reduction strategy following the reference implementation pattern from `mceliece6688128f/pk_gen.c`
+- **Key difference**: Performs semi-systematic pivot extraction during Gaussian elimination for the last 32 rows
+
+### Recent Bug Fixes (Latest Commit)
+
+The semi-systematic implementation had critical bugs that were recently resolved:
+
+1. **Gaussian Elimination Masks**: Fixed incorrect bit manipulation in `extract_pivots_and_reorder_like_ref()`
+2. **Algorithm Flow**: Fixed premature termination - now continues systematic elimination after semi-systematic pivot extraction
+3. **Validation**: Semi-systematic KAT output now correctly differs from systematic output
+
+### Usage
+
+To use the semi-systematic implementation, set the `MCELIECE_SEMI=1` environment variable:
+
+```bash
+# Build with semi-systematic support
+cc -O2 -Wall -Wextra -Isrc -Isrc_semi tests/kat/run_kat.c src/*.c src_semi/*.c -o run_kat -lm
+
+# Run systematic (default)
+./run_kat
+
+# Run semi-systematic  
+MCELIECE_SEMI=1 ./run_kat
+```
+
+### Testing Against Reference
+
+Compare with reference semi-systematic implementation:
+
+```bash
+# Run semi-systematic KAT
+MCELIECE_SEMI=1 ./run_kat
+
+# Compare structure (should have same format, different values)
+diff our_kat_output.rsp tests/semi-systematic-kat/kat_kem.rsp
+```
 
 ## Implementation notes
 
@@ -128,14 +195,20 @@ cc -O2 -Wall -Wextra -DUSE_REF_RANDOMBYTES \
 - Build examples:
 
 ```bash
+# Call runtime tool
 cc -O2 -Wall -Wextra -Isrc -Itools/call_runtime \
   tools/call_runtime/call_graph_benchmark.c \
   tools/call_runtime/function_profiler.c \
   tools/call_runtime/hierarchical_profiler.c \
   src/*.c -o call_graph_benchmark -lm
 
+# KAT runner (systematic)
 cc -O2 -Wall -Wextra -Isrc \
   tests/kat/run_kat.c src/*.c -o run_kat -lm
+
+# KAT runner (with semi-systematic support)
+cc -O2 -Wall -Wextra -Isrc -Isrc_semi \
+  tests/kat/run_kat.c src/*.c src_semi/*.c -o run_kat -lm
 ```
 
 ### Option 2: MSYS2/MinGW-w64 (native Windows)
@@ -144,13 +217,21 @@ cc -O2 -Wall -Wextra -Isrc \
 
 ```bash
 pacman -S --needed base-devel mingw-w64-x86_64-toolchain
+
+# Call runtime tool
 gcc -O2 -Wall -Wextra -Isrc -Itools/call_runtime \
   tools/call_runtime/call_graph_benchmark.c \
   tools/call_runtime/function_profiler.c \
   tools/call_runtime/hierarchical_profiler.c \
   src/*.c -o call_graph_benchmark -lm
+
+# KAT runner (systematic)  
 gcc -O2 -Wall -Wextra -Isrc \
   tests/kat/run_kat.c src/*.c -o run_kat -lm
+
+# KAT runner (with semi-systematic support)
+gcc -O2 -Wall -Wextra -Isrc -Isrc_semi \
+  tests/kat/run_kat.c src/*.c src_semi/*.c -o run_kat -lm
 ```
 
 ### Option 3: Visual Studio (MSVC)
@@ -158,6 +239,6 @@ gcc -O2 -Wall -Wextra -Isrc \
 - Replace POSIX-specific pieces used by the runtime tool:
   - `tools/call_runtime/function_profiler.h`: implement `get_time_ms()` with QueryPerformanceCounter under `_WIN32`.
   - `tools/call_runtime/call_graph_benchmark.c`: replace `getopt`/`unistd.h` with a minimal argv parser or compile this tool under WSL/MSYS2.
-- Create a VS project, add all files from `src/` and the three sources in `tools/call_runtime/`, and set include paths to `src` and `tools/call_runtime`.
+- Create a VS project, add all files from `src/` (and optionally `src_semi/` for semi-systematic support) and the three sources in `tools/call_runtime/`, and set include paths to `src`, `src_semi` and `tools/call_runtime`.
 
 
