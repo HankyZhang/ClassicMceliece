@@ -655,14 +655,18 @@ void run_kat_file(const char *req_path, const char *rsp_path) {
             int use_semi = 0; 
             const char *semi_env = getenv("MCELIECE_SEMI");
             if (semi_env && semi_env[0] == '1') use_semi = 1;
+            printf("KAT: count=%d MCELIECE_SEMI=%s use_semi=%d\n", count, semi_env ? semi_env : "(null)", use_semi);
             mceliece_error_t kgret;
             if (use_semi) {
                 uint8_t dummy_delta[MCELIECE_L_BYTES]; 
                 memset(dummy_delta, 0, sizeof dummy_delta);
+                printf("KAT: invoking seeded_key_gen_semi()\n");
                 kgret = seeded_key_gen_semi(dummy_delta, pk, sk);
             } else {
+                printf("KAT: invoking mceliece_keygen()\n");
                 kgret = mceliece_keygen(pk, sk);
             }
+            printf("KAT: keygen returned %d\n", (int)kgret);
             if (kgret != MCELIECE_SUCCESS) { 
                 printf("KAT: keygen fail\n"); 
                 public_key_free(pk); 

@@ -43,8 +43,18 @@ static inline int extract_pivots_and_reorder_like_ref(matrix_t *H, uint64_t *piv
         while (((t >> s) & 1ULL) == 0ULL && s < 64) s++;
         ctz_list[i] = (uint64_t)s;
         *pivots_out |= (1ULL << s);
-        for (int j = i + 1; j < 32; j++) { uint64_t mask = -((buf[i] >> s) & 1ULL); buf[i] ^= (buf[j] & mask); }
-        for (int j = i + 1; j < 32; j++) { uint64_t mask = -((buf[j] >> s) & 1ULL); buf[j] ^= (buf[i] & mask); }
+        // Ensure buf[i] has a 1 in position s
+        for (int j = i + 1; j < 32; j++) { 
+            uint64_t mask = (buf[i] >> s) & 1ULL; 
+            mask -= 1;    // mask = (bit == 0) ? 0xFFFF... : 0
+            buf[i] ^= buf[j] & mask; 
+        }
+        // Clear position s in all rows below
+        for (int j = i + 1; j < 32; j++) { 
+            uint64_t mask = (buf[j] >> s) & 1ULL; 
+            mask = -mask; // mask = (bit == 1) ? 0xFFFF... : 0
+            buf[j] ^= buf[i] & mask; 
+        }
     }
 
     // Reorder columns in-place for the selected byte block
@@ -74,19 +84,16 @@ static inline int extract_pivots_and_reorder_like_ref(matrix_t *H, uint64_t *piv
     }
 
     // Update global permutation pi exactly like reference mov_columns:
-    // for j in 0..31, for k in j+1..63, conditionally swap pi[row+j] and pi[row+k] if k == ctz_list[j]
+    // Use constant-time conditional swapping like the reference
     if (pi) {
         int base_row = mt - 32;
         for (int j = 0; j < 32; j++) {
             for (int k = j + 1; k < 64; k++) {
-                int swap = (k == (int)ctz_list[j]);
-                if (swap) {
-                    int idx_a = base_row + j;
-                    int idx_b = base_row + k;
-                    int16_t tmp = pi[idx_a];
-                    pi[idx_a] = pi[idx_b];
-                    pi[idx_b] = tmp;
-                }
+                // Constant-time conditional swap like reference implementation
+                uint64_t same_mask_val = (k == (int)ctz_list[j]) ? 0xFFFFFFFFFFFFFFFFULL : 0ULL;
+                int16_t d = (int16_t)((pi[base_row + j] ^ pi[base_row + k]) & same_mask_val);
+                pi[base_row + j] ^= d;
+                pi[base_row + k] ^= d;
             }
         }
     }
@@ -99,13 +106,19 @@ int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots, int1
     // Perform the same left-walk elimination, but when reaching last 32 rows, run mov_columns equivalent
     int mt = H->rows;
     int left_bytes = (mt + 7) / 8;
+    
+    // Phase 1: Standard systematic reduction until we reach the last 32 rows
     for (int byte_idx = 0; byte_idx < left_bytes; byte_idx++) {
         for (int bit_in_byte = 0; bit_in_byte < 8; bit_in_byte++) {
             int row = byte_idx * 8 + bit_in_byte;
             if (row >= mt) break;
 
+            // When we reach the last 32 rows, do semi-systematic handling FIRST, then continue
             if (row == mt - 32) {
-                if (extract_pivots_and_reorder_like_ref(H, pivots, col_perm, pi) != 0) return -1;
+                if (extract_pivots_and_reorder_like_ref(H, pivots, col_perm, pi) != 0) {
+                    return -1;
+                }
+                // Continue with systematic elimination (don't return here!)
             }
 
             for (int r = row + 1; r < mt; r++) {
@@ -137,6 +150,11 @@ int reduce_to_semisystematic_reference_style(matrix_t *H, uint64_t *pivots, int1
 
 mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, private_key_t *sk) {
     if (!delta || !pk || !sk) return MCELIECE_ERROR_INVALID_PARAM;
+    const char *semi_dbg = getenv("MCELIECE_DEBUG");
+    if (semi_dbg && semi_dbg[0] == '1') {
+        printf("[semi] seeded_key_gen_semi start\n");
+        fflush(stdout);
+    }
 
     // Reuse seeded_key_gen steps until building H, then use semi reduction
     int n_bits = MCELIECE_N;
@@ -216,7 +234,13 @@ mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, pri
         if (!pi) { free(col_perm); matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue; }
         // Initialize pi from support: pi[j] = bitrev(alpha[j]) for j<N, then fill remaining with unused values
         uint8_t *used = (uint8_t*)calloc((size_t)n_full, 1);
-        if (!used) { free(pi); free(col_perm); matrix_free(Htmp); memcpy(sk->delta, delta_prime, 32); continue; }
+        if (!used) { 
+            free(pi); 
+            free(col_perm); 
+            matrix_free(Htmp); 
+            memcpy(sk->delta, delta_prime, 32); 
+            continue; 
+        }
         for (int j = 0; j < MCELIECE_N; j++) {
             uint16_t a = (uint16_t)sk->alpha[j];
             int16_t v = (int16_t)bitrev_m_u16(a, (int)m);
@@ -226,7 +250,13 @@ mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, pri
         int16_t fill = 0;
         for (long long j = MCELIECE_N; j < n_full; j++) {
             while ((long long)fill < n_full && used[(size_t)fill]) fill++;
-            if ((long long)fill >= n_full) { pi[j] = 0; } else { pi[j] = fill; used[(size_t)fill] = 1; fill++; }
+            if ((long long)fill >= n_full) { 
+                pi[j] = 0; 
+            } else { 
+                pi[j] = fill; 
+                used[(size_t)fill] = 1; 
+                fill++; 
+            }
         }
         free(used);
         if (reduce_to_semisystematic_reference_style(Htmp, &pivots, col_perm, pi) != 0) {
@@ -249,9 +279,16 @@ mceliece_error_t seeded_key_gen_semi(const uint8_t *delta, public_key_t *pk, pri
         // controlbits: build directly from pi updated during mov_columns
         free(col_perm);
         size_t cb_len = (size_t)((((2 * m - 1) * n_full / 2) + 7) / 8);
-        if (sk->controlbits) { free(sk->controlbits); sk->controlbits = NULL; }
+        if (sk->controlbits) { 
+            free(sk->controlbits); 
+            sk->controlbits = NULL; 
+        }
         sk->controlbits = (uint8_t*)malloc(cb_len);
-        if (!sk->controlbits) { free(pi); free(E); return MCELIECE_ERROR_MEMORY; }
+        if (!sk->controlbits) { 
+            free(pi); 
+            free(E); 
+            return MCELIECE_ERROR_MEMORY; 
+        }
         memset(sk->controlbits, 0, cb_len);
         cbits_from_perm_ns(sk->controlbits, pi, m, n_full);
         sk->controlbits_len = cb_len;
